@@ -1,0 +1,13 @@
+
+func (m *mockHandlerDB) GetAPIKeyByKey(ctx context.Context, key string) (*db.APIKey, error) {
+	apiKey, ok := m.apiKeysByString[key]
+	if !ok {
+		return nil, fmt.Errorf("API key not found")
+	}
+	return apiKey, nil
+}
+
+func (m *mockHandlerDB) UpdateAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error {
+	m.lastUsedCalls[id]++
+	return nil
+}
