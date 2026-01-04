@@ -14,11 +14,12 @@ import (
 
 // Server represents the HTTP server with all dependencies.
 type Server struct {
-	router   *chi.Mux
-	handlers *Handlers
-	db       *db.Client
-	fly      *fly.Client
-	config   *Config
+	router      *chi.Mux
+	handlers    *Handlers
+	db          *db.Client
+	fly         *fly.Client
+	rateLimiter *RateLimiter
+	config      *Config
 }
 
 // Config holds all configuration for the server.
@@ -50,7 +51,10 @@ func NewServer(cfg *Config) (*Server, error) {
 	// 3. Create handlers
 	handlers := NewHandlers(dbClient, flyClient)
 
-	// 4. Set up chi router with middleware
+	// 4. Create rate limiter
+	rateLimiter := NewRateLimiter()
+
+	// 5. Set up chi router with middleware
 	router := chi.NewRouter()
 
 	// Global middleware
@@ -59,13 +63,14 @@ func NewServer(cfg *Config) (*Server, error) {
 	router.Use(RecoveryMiddleware)
 	router.Use(LoggingMiddleware)
 
-	// 5. Register routes
+	// 6. Register routes
 	s := &Server{
-		router:   router,
-		handlers: handlers,
-		db:       dbClient,
-		fly:      flyClient,
-		config:   cfg,
+		router:      router,
+		handlers:    handlers,
+		db:          dbClient,
+		fly:         flyClient,
+		rateLimiter: rateLimiter,
+		config:      cfg,
 	}
 
 	s.registerRoutes()
@@ -78,10 +83,11 @@ func (s *Server) registerRoutes() {
 	// Health check endpoint (no auth required)
 	s.router.Get("/health", s.healthCheck)
 
-	// API v1 routes with authentication
+	// API v1 routes with authentication and rate limiting
 	s.router.Route("/v1", func(r chi.Router) {
-		// Apply auth middleware to all v1 routes
+		// Apply auth middleware first, then rate limiting
 		r.Use(AuthMiddleware(s.db))
+		r.Use(s.rateLimiter.Middleware())
 
 		// Session management
 		r.Post("/sessions", s.handlers.CreateSession)
@@ -129,13 +135,9 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up the API key details
-	apiKey, err := s.db.GetAPIKeyByKey(r.Context(), "") // We need to modify this approach
-	if err != nil {
-		// For now, create a minimal API key object with just the ID
-		// TODO: Store full API key in context or adjust AttachSession signature
-		apiKey = &db.APIKey{ID: apiKeyID}
-	}
+	// Create API key struct with the ID for ownership check
+	// AttachSession only needs the ID for ownership validation
+	apiKey := &db.APIKey{ID: apiKeyID}
 
 	// Call the attach handler
 	s.handlers.AttachSession(w, r, sessionID, apiKey)
