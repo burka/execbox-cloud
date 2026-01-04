@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+*.md
+!deploy/*.md
+test/
+tests/
+*.test
+coverage.out
+bin/
+.vscode/
+.idea/
+.claude/
+tmp/
+*.log
