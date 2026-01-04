@@ -1,14 +1,18 @@
 # Execbox-Cloud Roadmap
 
 ## Phase 1: Core API + Fly Backend (Current)
-- [ ] Go module setup and directory structure
-- [ ] Supabase schema (api_keys, sessions, usage_metrics)
-- [ ] Database layer (postgres.go, models.go)
-- [ ] Fly.io Machines client (create, start, stop, destroy)
-- [ ] HTTP handlers (POST/GET/DELETE /v1/sessions)
-- [ ] WebSocket attach endpoint with binary protocol
-- [ ] API key auth middleware
-- [ ] Rate limiting
+- [x] Go module setup and directory structure
+- [x] Supabase schema (api_keys, sessions, usage_metrics)
+- [x] Database layer (postgres.go, models.go)
+- [x] Fly.io Machines client (create, start, stop, destroy)
+- [x] HTTP handlers (POST/GET/DELETE /v1/sessions)
+- [x] WebSocket attach endpoint with binary protocol
+- [x] API key auth middleware
+- [x] Rate limiting
+- [ ] Wire Fly Machine I/O to WebSocket attach
+- [ ] Add file upload/download endpoints
+- [ ] Add /v1/sessions/{id}/url endpoint
+- [ ] Integration tests with real Fly.io
 - [ ] Deploy to Fly.io
 
 ## Phase 2: Image Building
