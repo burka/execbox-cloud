@@ -7,7 +7,7 @@
 -- Stores content-addressed images built from setup commands
 -- Used to avoid rebuilding identical images
 
-CREATE TABLE image_cache (
+CREATE TABLE IF NOT EXISTS image_cache (
     id SERIAL PRIMARY KEY,
     hash TEXT UNIQUE NOT NULL,              -- Content-addressed hash (SHA256, 16 hex chars)
     base_image TEXT NOT NULL,               -- Original base image (e.g., "python:3.12")
@@ -20,10 +20,10 @@ CREATE TABLE image_cache (
 );
 
 -- Index for fast hash lookups
-CREATE INDEX idx_image_cache_hash ON image_cache(hash);
+CREATE INDEX IF NOT EXISTS idx_image_cache_hash ON image_cache(hash);
 
 -- Index for cleanup of stale images
-CREATE INDEX idx_image_cache_last_used ON image_cache(last_used_at);
+CREATE INDEX IF NOT EXISTS idx_image_cache_last_used ON image_cache(last_used_at);
 
 COMMENT ON TABLE image_cache IS 'Cache of built images to avoid rebuilding identical setups';
 COMMENT ON COLUMN image_cache.hash IS 'Content-addressed SHA256 hash (16 hex chars)';

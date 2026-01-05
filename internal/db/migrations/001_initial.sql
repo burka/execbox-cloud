@@ -7,9 +7,8 @@
 -- ============================================================================
 -- Stores API keys with tier-based configuration and rate limiting
 -- Each key is prefixed with 'eb_' for easy identification
-COMMENT ON TABLE api_keys IS 'API keys for authentication and authorization with tier-based rate limiting';
 
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key TEXT UNIQUE NOT NULL,
     tier TEXT NOT NULL DEFAULT 'free',
@@ -22,11 +21,12 @@ CREATE TABLE api_keys (
 );
 
 -- Index for fast key lookups during authentication
-CREATE INDEX idx_api_keys_key ON api_keys(key);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
 -- Index for querying by tier
-CREATE INDEX idx_api_keys_tier ON api_keys(tier);
+CREATE INDEX IF NOT EXISTS idx_api_keys_tier ON api_keys(tier);
 
+COMMENT ON TABLE api_keys IS 'API keys for authentication and authorization with tier-based rate limiting';
 COMMENT ON COLUMN api_keys.id IS 'Unique identifier for the API key';
 COMMENT ON COLUMN api_keys.key IS 'The actual API key (format: eb_xxxxxxxx)';
 COMMENT ON COLUMN api_keys.tier IS 'Subscription tier: free, pro, or enterprise';
@@ -39,9 +39,8 @@ COMMENT ON COLUMN api_keys.last_used_at IS 'Timestamp of last successful authent
 -- ============================================================================
 -- Tracks execution sessions including Fly.io machine details and status
 -- Each session represents a containerized execution environment
-COMMENT ON TABLE sessions IS 'Execution sessions with Fly.io machine mapping and lifecycle tracking';
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     api_key_id UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
     fly_machine_id TEXT,
@@ -62,17 +61,18 @@ CREATE TABLE sessions (
 );
 
 -- Index for querying sessions by API key
-CREATE INDEX idx_sessions_api_key_id ON sessions(api_key_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_api_key_id ON sessions(api_key_id);
 
 -- Index for filtering by status
-CREATE INDEX idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 
 -- Composite index for common query pattern: active sessions by API key
-CREATE INDEX idx_sessions_api_key_status ON sessions(api_key_id, status);
+CREATE INDEX IF NOT EXISTS idx_sessions_api_key_status ON sessions(api_key_id, status);
 
 -- Index for querying by Fly machine ID
-CREATE INDEX idx_sessions_fly_machine_id ON sessions(fly_machine_id) WHERE fly_machine_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_fly_machine_id ON sessions(fly_machine_id) WHERE fly_machine_id IS NOT NULL;
 
+COMMENT ON TABLE sessions IS 'Execution sessions with Fly.io machine mapping and lifecycle tracking';
 COMMENT ON COLUMN sessions.id IS 'Session identifier (format: sess_abc123)';
 COMMENT ON COLUMN sessions.api_key_id IS 'Reference to the API key that created this session';
 COMMENT ON COLUMN sessions.fly_machine_id IS 'Fly.io machine identifier';
@@ -93,9 +93,8 @@ COMMENT ON COLUMN sessions.ended_at IS 'Timestamp when session ended';
 -- ============================================================================
 -- Aggregates daily usage statistics per API key for billing and analytics
 -- Uses UNIQUE constraint to ensure one row per API key per day
-COMMENT ON TABLE usage_metrics IS 'Daily aggregated usage metrics per API key for billing and analytics';
 
-CREATE TABLE usage_metrics (
+CREATE TABLE IF NOT EXISTS usage_metrics (
     id BIGSERIAL PRIMARY KEY,
     api_key_id UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
     date DATE NOT NULL,
@@ -108,11 +107,12 @@ CREATE TABLE usage_metrics (
 );
 
 -- Index for efficient daily metrics queries
-CREATE INDEX idx_usage_metrics_api_key_date ON usage_metrics(api_key_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_metrics_api_key_date ON usage_metrics(api_key_id, date DESC);
 
 -- Index for querying metrics by date range
-CREATE INDEX idx_usage_metrics_date ON usage_metrics(date);
+CREATE INDEX IF NOT EXISTS idx_usage_metrics_date ON usage_metrics(date);
 
+COMMENT ON TABLE usage_metrics IS 'Daily aggregated usage metrics per API key for billing and analytics';
 COMMENT ON COLUMN usage_metrics.id IS 'Auto-incrementing unique identifier';
 COMMENT ON COLUMN usage_metrics.api_key_id IS 'Reference to the API key';
 COMMENT ON COLUMN usage_metrics.date IS 'Date for this metric aggregation';

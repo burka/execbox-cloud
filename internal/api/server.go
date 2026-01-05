@@ -45,13 +45,19 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create database client: %w", err)
 	}
 
-	// 2. Create Fly client
+	// 2. Run migrations
+	slog.Info("running database migrations")
+	if err := dbClient.RunMigrations(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	// 3. Create Fly client
 	flyClient := fly.New(cfg.FlyToken, cfg.FlyOrg, cfg.FlyAppName)
 
-	// 3. Create handlers
+	// 4. Create handlers
 	handlers := NewHandlers(dbClient, flyClient)
 
-	// 4. Set up image builder and cache
+	// 5. Set up image builder and cache
 	builder := fly.NewBuilder(flyClient, cfg.FlyAppName)
 	cache := fly.NewDBBuildCache(
 		dbClient.GetImageCache,
@@ -60,10 +66,10 @@ func NewServer(cfg *Config) (*Server, error) {
 	)
 	handlers.SetBuilder(builder, cache)
 
-	// 5. Create rate limiter
+	// 6. Create rate limiter
 	rateLimiter := NewRateLimiter()
 
-	// 6. Set up chi router with middleware
+	// 7. Set up chi router with middleware
 	router := chi.NewRouter()
 
 	// Global middleware
@@ -72,7 +78,7 @@ func NewServer(cfg *Config) (*Server, error) {
 	router.Use(RecoveryMiddleware)
 	router.Use(LoggingMiddleware)
 
-	// 7. Create server and register routes
+	// 8. Create server and register routes
 	s := &Server{
 		router:      router,
 		handlers:    handlers,
