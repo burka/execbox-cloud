@@ -141,6 +141,49 @@ func (c *Client) DestroyMachine(ctx context.Context, machineID string) error {
 	return decodeResponse(resp, nil)
 }
 
+// ExecRequest represents a request to execute a command in a machine
+type ExecRequest struct {
+	Cmd     string `json:"cmd"`
+	Stdin   string `json:"stdin,omitempty"`
+	Timeout int    `json:"timeout,omitempty"` // seconds, default 30
+}
+
+// ExecResponse represents the response from executing a command
+type ExecResponse struct {
+	ExitCode int32  `json:"exit_code"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+}
+
+// Exec executes a command in a running machine and returns the output
+// This is a synchronous operation - it waits for the command to complete
+func (c *Client) Exec(ctx context.Context, machineID string, req *ExecRequest) (*ExecResponse, error) {
+	if machineID == "" {
+		return nil, fmt.Errorf("machineID cannot be empty")
+	}
+	if req == nil || req.Cmd == "" {
+		return nil, fmt.Errorf("command cannot be empty")
+	}
+
+	// Default timeout to 30 seconds if not specified
+	if req.Timeout == 0 {
+		req.Timeout = 30
+	}
+
+	path := fmt.Sprintf("/apps/%s/machines/%s/exec", c.appName, machineID)
+	resp, err := c.request(ctx, "POST", path, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var execResp ExecResponse
+	if err := decodeResponse(resp, &execResp); err != nil {
+		return nil, err
+	}
+
+	return &execResp, nil
+}
+
 // WaitForState polls the machine state until it reaches the desired state or timeout
 func (c *Client) WaitForState(ctx context.Context, machineID string, desiredState string, timeout time.Duration) error {
 	if machineID == "" {
