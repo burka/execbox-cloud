@@ -2,7 +2,7 @@ app = "execbox-cloud"
 primary_region = "fra"
 
 [build]
-  builder = "paketobuildpacks/builder:base"
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8080"
