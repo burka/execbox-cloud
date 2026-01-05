@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,21 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	openAPIFlag := flag.Bool("openapi", false, "Generate OpenAPI spec and exit")
+	flag.Parse()
+
+	// Handle --openapi flag
+	if *openAPIFlag {
+		spec, err := api.GenerateOpenAPISpec()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to generate OpenAPI spec: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(spec))
+		os.Exit(0)
+	}
+
 	// 1. Load configuration from environment
 	cfg := loadConfig()
 

@@ -49,3 +49,56 @@
 //	    api.WriteJSON(w, resp, http.StatusCreated)
 //	}
 package api
+
+import "github.com/danielgtaylor/huma/v2"
+
+// OpenAPIInfo returns the OpenAPI info configuration for execbox-cloud.
+func OpenAPIInfo() huma.OpenAPI {
+	return huma.OpenAPI{
+		OpenAPI: "3.1.0",
+		Info: &huma.Info{
+			Title:       "Execbox Cloud API",
+			Version:     "1.0.0",
+			Description: "Remote execution API for AI assistants and automation.\n\nExecute code in secure cloud containers with full I/O streaming support via Fly.io infrastructure.",
+			Contact: &huma.Contact{
+				Name: "Execbox Cloud",
+				URL:  "https://github.com/burka/execbox-cloud",
+			},
+		},
+		Servers: []*huma.Server{
+			{
+				URL:         "https://api.execbox.cloud",
+				Description: "Production server",
+			},
+			{
+				URL:         "http://localhost:8080",
+				Description: "Local development server",
+			},
+		},
+		Tags: []*huma.Tag{
+			{
+				Name:        "Sessions",
+				Description: "Create, manage, and monitor execution sessions",
+			},
+			{
+				Name:        "Quota",
+				Description: "Quota requests for increased limits",
+			},
+			{
+				Name:        "Health",
+				Description: "Health check endpoints",
+			},
+		},
+	}
+}
+
+// SecuritySchemes returns the security scheme definitions.
+func SecuritySchemes() map[string]*huma.SecurityScheme {
+	return map[string]*huma.SecurityScheme{
+		"bearerAuth": {
+			Type:        "http",
+			Scheme:      "bearer",
+			Description: "API key authentication. Provide your API key in the Authorization header as 'Bearer YOUR_API_KEY'.",
+		},
+	}
+}

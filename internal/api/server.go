@@ -8,6 +8,7 @@ import (
 
 	"github.com/burka/execbox-cloud/internal/backend/fly"
 	"github.com/burka/execbox-cloud/internal/db"
+	"github.com/burka/execbox-cloud/static"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -95,6 +96,9 @@ func NewServer(cfg *Config) (*Server, error) {
 
 // registerRoutes sets up all HTTP routes.
 func (s *Server) registerRoutes() {
+	// Set up OpenAPI documentation
+	_ = SetupOpenAPI(s.router)
+
 	// Health check endpoint (no auth required)
 	s.router.Get("/health", s.healthCheck)
 
@@ -123,6 +127,16 @@ func (s *Server) registerRoutes() {
 			r.Get("/sessions/{id}/attach", s.handleAttach)
 		})
 	})
+
+	// Dashboard SPA - catch all remaining routes
+	// This must be registered AFTER all API routes to ensure API routes take precedence
+	dashboardFS, err := static.DashboardFS()
+	if err != nil {
+		slog.Error("failed to get dashboard filesystem", "error", err)
+	} else {
+		spaHandler := NewSPAHandler(dashboardFS, "index.html", "/assets/")
+		s.router.Handle("/*", spaHandler)
+	}
 }
 
 // healthCheck handles GET /health - verifies server and database connectivity.

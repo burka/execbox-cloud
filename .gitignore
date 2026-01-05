@@ -2,3 +2,5 @@ bin/
 .env
 *.exe
 .DS_Store
+coverage.out
+node_modules/

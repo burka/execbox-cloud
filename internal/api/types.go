@@ -3,43 +3,43 @@ package api
 
 // CreateSessionRequest defines the request body for POST /v1/sessions
 type CreateSessionRequest struct {
-	Image     string            `json:"image"`
-	Setup     []string          `json:"setup,omitempty"` // RUN commands to bake into image
-	Files     []FileSpec        `json:"files,omitempty"` // Files to include in image
-	Command   []string          `json:"command,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	WorkDir   string            `json:"workDir,omitempty"`
-	Resources *Resources        `json:"resources,omitempty"`
-	Network   string            `json:"network,omitempty"` // none|outgoing|exposed
-	Ports     []PortSpec        `json:"ports,omitempty"`
+	Image     string            `json:"image" doc:"Container image (e.g., python:3.11, node:20)" example:"python:3.11" minLength:"1"`
+	Setup     []string          `json:"setup,omitempty" doc:"RUN commands to bake into image" example:"pip install requests"`
+	Files     []FileSpec        `json:"files,omitempty" doc:"Files to include in image"`
+	Command   []string          `json:"command,omitempty" doc:"Command to run in container" example:"python"`
+	Env       map[string]string `json:"env,omitempty" doc:"Environment variables"`
+	WorkDir   string            `json:"workDir,omitempty" doc:"Working directory" example:"/app" default:"/"`
+	Resources *Resources        `json:"resources,omitempty" doc:"Resource limits"`
+	Network   string            `json:"network,omitempty" doc:"Network mode: none, outgoing, or exposed" enum:"none,outgoing,exposed" example:"outgoing" default:"outgoing"`
+	Ports     []PortSpec        `json:"ports,omitempty" doc:"Ports to expose from container"`
 }
 
 // FileSpec defines a file to include in the built image
 type FileSpec struct {
-	Path     string `json:"path"`               // Destination path in container
-	Content  string `json:"content"`            // File content (text or base64)
-	Encoding string `json:"encoding,omitempty"` // "utf8" (default) or "base64"
+	Path     string `json:"path" doc:"Destination path in container" example:"/app/script.py" minLength:"1"`
+	Content  string `json:"content" doc:"File content (text or base64)" example:"print('hello')"`
+	Encoding string `json:"encoding,omitempty" doc:"Content encoding: utf8 (default) or base64" enum:"utf8,base64" default:"utf8"`
 }
 
 // Resources defines resource limits for a session
 type Resources struct {
-	CPUMillis int `json:"cpuMillis,omitempty"` // CPU limit in millicores
-	MemoryMB  int `json:"memoryMB,omitempty"`  // Memory limit in MB
-	TimeoutMs int `json:"timeoutMs,omitempty"` // Timeout in milliseconds
+	CPUMillis int `json:"cpuMillis,omitempty" doc:"CPU limit in millicores (1000 = 1 CPU core)" example:"1000" minimum:"100" maximum:"8000"`
+	MemoryMB  int `json:"memoryMB,omitempty" doc:"Memory limit in MB" example:"512" minimum:"128" maximum:"8192"`
+	TimeoutMs int `json:"timeoutMs,omitempty" doc:"Timeout in milliseconds" example:"60000" minimum:"1000" maximum:"300000"`
 }
 
 // PortSpec defines a port to expose from the container
 type PortSpec struct {
-	Container int    `json:"container"`          // Container port number
-	Protocol  string `json:"protocol,omitempty"` // tcp or udp (default: tcp)
+	Container int    `json:"container" doc:"Container port number" example:"8080" minimum:"1" maximum:"65535"`
+	Protocol  string `json:"protocol,omitempty" doc:"Protocol: tcp or udp" enum:"tcp,udp" default:"tcp"`
 }
 
 // CreateSessionResponse defines the response body for POST /v1/sessions
 type CreateSessionResponse struct {
-	ID        string       `json:"id"`
-	Status    string       `json:"status"`
-	CreatedAt string       `json:"createdAt"`
-	Network   *NetworkInfo `json:"network,omitempty"`
+	ID        string       `json:"id" doc:"Unique session identifier" example:"sess_abc123"`
+	Status    string       `json:"status" doc:"Session status" enum:"pending,building,running,stopped,failed" example:"building"`
+	CreatedAt string       `json:"createdAt" doc:"Session creation timestamp (RFC3339)" example:"2024-01-15T10:30:00Z"`
+	Network   *NetworkInfo `json:"network,omitempty" doc:"Network configuration (if network mode is exposed)"`
 }
 
 // NetworkInfo contains network configuration details for a session
@@ -107,12 +107,12 @@ type ListDirectoryResponse struct {
 
 // QuotaRequestRequest defines the request body for POST /v1/quota-requests
 type QuotaRequestRequest struct {
-	Email           string  `json:"email"`
-	Name            *string `json:"name,omitempty"`
-	Company         *string `json:"company,omitempty"`
-	UseCase         *string `json:"use_case,omitempty"`
-	RequestedLimits *string `json:"requested_limits,omitempty"`
-	Budget          *string `json:"budget,omitempty"`
+	Email           string  `json:"email" doc:"Email address" example:"user@example.com" format:"email" minLength:"1"`
+	Name            *string `json:"name,omitempty" doc:"Full name" example:"John Doe"`
+	Company         *string `json:"company,omitempty" doc:"Company name" example:"Acme Corp"`
+	UseCase         *string `json:"use_case,omitempty" doc:"Description of use case" example:"AI code execution for education"`
+	RequestedLimits *string `json:"requested_limits,omitempty" doc:"Requested limits" example:"100 sessions/day"`
+	Budget          *string `json:"budget,omitempty" doc:"Budget information" example:"$500/month"`
 }
 
 // QuotaRequestResponse defines the response body for POST /v1/quota-requests
@@ -121,4 +121,41 @@ type QuotaRequestResponse struct {
 	Status    string `json:"status"`
 	Message   string `json:"message"`
 	CreatedAt string `json:"created_at"`
+}
+
+// AccountResponse defines the response body for GET /v1/account
+type AccountResponse struct {
+	Tier          string  `json:"tier"`
+	Email         *string `json:"email,omitempty"`
+	APIKeyID      string  `json:"api_key_id"`
+	APIKeyPreview string  `json:"api_key_preview"`
+	CreatedAt     string  `json:"created_at"`
+	TierExpiresAt *string `json:"tier_expires_at,omitempty"`
+}
+
+// UsageResponse defines the response body for GET /v1/account/usage
+type UsageResponse struct {
+	SessionsToday      int    `json:"sessions_today"`
+	ActiveSessions     int    `json:"active_sessions"`
+	QuotaUsed          int    `json:"quota_used"`
+	QuotaRemaining     int    `json:"quota_remaining"`
+	Tier               string `json:"tier"`
+	ConcurrentLimit    int    `json:"concurrent_limit"`
+	DailyLimit         int    `json:"daily_limit"`
+	MaxDurationSeconds int    `json:"max_duration_seconds"`
+	MaxMemoryMB        int    `json:"max_memory_mb"`
+}
+
+// CreateKeyRequest defines the request body for POST /v1/keys
+type CreateKeyRequest struct {
+	Email string  `json:"email"`
+	Name  *string `json:"name,omitempty"`
+}
+
+// CreateKeyResponse defines the response body for POST /v1/keys
+type CreateKeyResponse struct {
+	ID      string `json:"id"`
+	Key     string `json:"key"`
+	Tier    string `json:"tier"`
+	Message string `json:"message"`
 }
