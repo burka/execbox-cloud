@@ -16,6 +16,9 @@ type DBClient interface {
 	UpdateSession(ctx context.Context, id string, update *db.SessionUpdate) error
 	ListSessions(ctx context.Context, apiKeyID uuid.UUID, status *string) ([]db.Session, error)
 	DeleteSession(ctx context.Context, id string) error
+	GetActiveSessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error)
+	GetDailySessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error)
+	CreateQuotaRequest(ctx context.Context, req *db.QuotaRequest) (*db.QuotaRequest, error)
 }
 
 // Ensure *db.Client implements DBClient interface

@@ -4,8 +4,8 @@ package api
 // CreateSessionRequest defines the request body for POST /v1/sessions
 type CreateSessionRequest struct {
 	Image     string            `json:"image"`
-	Setup     []string          `json:"setup,omitempty"`  // RUN commands to bake into image
-	Files     []FileSpec        `json:"files,omitempty"`  // Files to include in image
+	Setup     []string          `json:"setup,omitempty"` // RUN commands to bake into image
+	Files     []FileSpec        `json:"files,omitempty"` // Files to include in image
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	WorkDir   string            `json:"workDir,omitempty"`
@@ -103,4 +103,22 @@ type FileEntry struct {
 type ListDirectoryResponse struct {
 	Path    string      `json:"path"`
 	Entries []FileEntry `json:"entries"`
+}
+
+// QuotaRequestRequest defines the request body for POST /v1/quota-requests
+type QuotaRequestRequest struct {
+	Email           string  `json:"email"`
+	Name            *string `json:"name,omitempty"`
+	Company         *string `json:"company,omitempty"`
+	UseCase         *string `json:"use_case,omitempty"`
+	RequestedLimits *string `json:"requested_limits,omitempty"`
+	Budget          *string `json:"budget,omitempty"`
+}
+
+// QuotaRequestResponse defines the response body for POST /v1/quota-requests
+type QuotaRequestResponse struct {
+	ID        int    `json:"id"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
 }

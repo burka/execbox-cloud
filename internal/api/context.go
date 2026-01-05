@@ -12,6 +12,7 @@ type ctxKey string
 const (
 	ctxAPIKeyID        ctxKey = "api_key_id"
 	ctxAPIKeyRateLimit ctxKey = "api_key_rate_limit"
+	ctxAPIKeyTier      ctxKey = "api_key_tier"
 )
 
 // GetAPIKeyID retrieves the API key ID from the request context.
@@ -38,4 +39,17 @@ func GetAPIKeyRateLimit(ctx context.Context) (int, bool) {
 // This is typically called by authentication middleware after validating the API key.
 func WithAPIKeyRateLimit(ctx context.Context, rateLimit int) context.Context {
 	return context.WithValue(ctx, ctxAPIKeyRateLimit, rateLimit)
+}
+
+// GetAPIKeyTier retrieves the tier from the request context.
+// Returns the tier and true if found, otherwise returns empty string and false.
+func GetAPIKeyTier(ctx context.Context) (string, bool) {
+	tier, ok := ctx.Value(ctxAPIKeyTier).(string)
+	return tier, ok
+}
+
+// WithAPIKeyTier adds the tier to the request context.
+// This is typically called by authentication middleware after validating the API key.
+func WithAPIKeyTier(ctx context.Context, tier string) context.Context {
+	return context.WithValue(ctx, ctxAPIKeyTier, tier)
 }

@@ -48,6 +48,37 @@ func (h *Handlers) SetBuilder(builder ImageBuilder, cache fly.BuildCache) {
 	h.cache = cache
 }
 
+// getAuthorizedSession retrieves a session and verifies the caller owns it.
+// Returns the session or writes an error response and returns nil.
+func (h *Handlers) getAuthorizedSession(w http.ResponseWriter, r *http.Request) *db.Session {
+	ctx := r.Context()
+
+	apiKeyID, ok := GetAPIKeyID(ctx)
+	if !ok {
+		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
+		return nil
+	}
+
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return nil
+	}
+
+	session, err := h.db.GetSession(ctx, sessionID)
+	if err != nil {
+		WriteError(w, ErrNotFound, http.StatusNotFound, CodeNotFound)
+		return nil
+	}
+
+	if session.APIKeyID != apiKeyID {
+		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
+		return nil
+	}
+
+	return session
+}
+
 // CreateSession handles POST /v1/sessions
 // Creates a new execution session with a Fly machine and stores it in the database.
 func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +91,44 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get tier from context
+	tier, ok := GetAPIKeyTier(ctx)
+	if !ok {
+		// Default to anonymous tier if not authenticated
+		tier = TierAnonymous
+	}
+
+	// Check quota limits before creating session
+	limits := GetTierLimits(tier)
+
+	// Check concurrent session limit
+	if !IsUnlimited(limits.ConcurrentSessions) {
+		activeCount, err := h.db.GetActiveSessionCount(ctx, apiKeyID)
+		if err != nil {
+			WriteError(w, fmt.Errorf("%w: failed to check concurrent sessions: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+
+		if activeCount >= limits.ConcurrentSessions {
+			WriteError(w, fmt.Errorf("%w: concurrent session limit reached (%d/%d)", ErrQuotaExceeded, activeCount, limits.ConcurrentSessions), http.StatusTooManyRequests, CodeQuotaExceeded)
+			return
+		}
+	}
+
+	// Check daily session limit
+	if !IsUnlimited(limits.SessionsPerDay) {
+		dailyCount, err := h.db.GetDailySessionCount(ctx, apiKeyID)
+		if err != nil {
+			WriteError(w, fmt.Errorf("%w: failed to check daily sessions: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+
+		if dailyCount >= limits.SessionsPerDay {
+			WriteError(w, fmt.Errorf("%w: daily session limit reached (%d/%d)", ErrQuotaExceeded, dailyCount, limits.SessionsPerDay), http.StatusTooManyRequests, CodeQuotaExceeded)
+			return
+		}
+	}
+
 	// Parse request body
 	var req CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -70,6 +139,13 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	if req.Image == "" {
 		WriteError(w, fmt.Errorf("%w: image is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return
+	}
+
+	// Reject setup/files until image building is fully implemented
+	if len(req.Setup) > 0 || len(req.Files) > 0 {
+		WriteError(w, fmt.Errorf("%w: custom image building (setup/files) not yet available", ErrBadRequest),
+			http.StatusBadRequest, CodeBadRequest)
 		return
 	}
 
@@ -135,7 +211,7 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		Image:        resolvedImage,
 		Command:      req.Command,
 		Env:          req.Env,
-		Status:       "pending",
+		Status:       SessionStatusPending,
 		Ports:        ports,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -151,7 +227,7 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 	// Build response
 	response := CreateSessionResponse{
 		ID:        sessionID,
-		Status:    "pending",
+		Status:    SessionStatusPending,
 		CreatedAt: session.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -166,36 +242,11 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 // GetSession handles GET /v1/sessions/{id}
 // Retrieves a session by ID, checking ownership.
 func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	// Get API key ID from context
-	apiKeyID, ok := GetAPIKeyID(ctx)
-	if !ok {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
+	session := h.getAuthorizedSession(w, r)
+	if session == nil {
+		return // Error already written
 	}
 
-	// Get session ID from path
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
-		return
-	}
-
-	// Get session from database
-	session, err := h.db.GetSession(ctx, sessionID)
-	if err != nil {
-		WriteError(w, ErrNotFound, http.StatusNotFound, CodeNotFound)
-		return
-	}
-
-	// Check ownership
-	if session.APIKeyID != apiKeyID {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
-	}
-
-	// Build response
 	response := buildSessionResponse(session)
 	WriteJSON(w, response, http.StatusOK)
 }
@@ -242,35 +293,13 @@ func (h *Handlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) StopSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get API key ID from context
-	apiKeyID, ok := GetAPIKeyID(ctx)
-	if !ok {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
-	}
-
-	// Get session ID from path
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
-		return
-	}
-
-	// Get session from database
-	session, err := h.db.GetSession(ctx, sessionID)
-	if err != nil {
-		WriteError(w, ErrNotFound, http.StatusNotFound, CodeNotFound)
-		return
-	}
-
-	// Check ownership
-	if session.APIKeyID != apiKeyID {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
+	session := h.getAuthorizedSession(w, r)
+	if session == nil {
+		return // Error already written
 	}
 
 	// Check if already stopped
-	if session.Status == "stopped" || session.Status == "killed" || session.Status == "failed" {
+	if session.Status == SessionStatusStopped || session.Status == SessionStatusKilled || session.Status == SessionStatusFailed {
 		WriteError(w, ErrConflict, http.StatusConflict, CodeConflict)
 		return
 	}
@@ -285,20 +314,20 @@ func (h *Handlers) StopSession(w http.ResponseWriter, r *http.Request) {
 
 	// Update session status in database
 	now := time.Now().UTC()
-	status := "stopped"
+	status := SessionStatusStopped
 	update := &db.SessionUpdate{
 		Status:  &status,
 		EndedAt: &now,
 	}
 
-	if err := h.db.UpdateSession(ctx, sessionID, update); err != nil {
+	if err := h.db.UpdateSession(ctx, session.ID, update); err != nil {
 		WriteError(w, fmt.Errorf("%w: failed to update session: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
 		return
 	}
 
 	// Build response
 	response := StopSessionResponse{
-		Status: "stopped",
+		Status: SessionStatusStopped,
 	}
 
 	WriteJSON(w, response, http.StatusOK)
@@ -309,31 +338,9 @@ func (h *Handlers) StopSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) KillSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get API key ID from context
-	apiKeyID, ok := GetAPIKeyID(ctx)
-	if !ok {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
-	}
-
-	// Get session ID from path
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
-		return
-	}
-
-	// Get session from database
-	session, err := h.db.GetSession(ctx, sessionID)
-	if err != nil {
-		WriteError(w, ErrNotFound, http.StatusNotFound, CodeNotFound)
-		return
-	}
-
-	// Check ownership
-	if session.APIKeyID != apiKeyID {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
+	session := h.getAuthorizedSession(w, r)
+	if session == nil {
+		return // Error already written
 	}
 
 	// Destroy Fly machine if it exists
@@ -346,20 +353,20 @@ func (h *Handlers) KillSession(w http.ResponseWriter, r *http.Request) {
 
 	// Update session status in database
 	now := time.Now().UTC()
-	status := "killed"
+	status := SessionStatusKilled
 	update := &db.SessionUpdate{
 		Status:  &status,
 		EndedAt: &now,
 	}
 
-	if err := h.db.UpdateSession(ctx, sessionID, update); err != nil {
+	if err := h.db.UpdateSession(ctx, session.ID, update); err != nil {
 		WriteError(w, fmt.Errorf("%w: failed to update session: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
 		return
 	}
 
 	// Build response
 	response := StopSessionResponse{
-		Status: "killed",
+		Status: SessionStatusKilled,
 	}
 
 	WriteJSON(w, response, http.StatusOK)
@@ -374,8 +381,9 @@ func generateSessionID() string {
 func randHex(n int) string {
 	bytes := make([]byte, n)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based ID in case of error
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+		// crypto/rand failure indicates system compromise or severe misconfiguration
+		// We must never fall back to predictable IDs - panic is the only safe response
+		panic(fmt.Sprintf("crypto/rand failed: %v - system security compromised", err))
 	}
 	return hex.EncodeToString(bytes)[:n]
 }
@@ -474,6 +482,63 @@ func buildNetworkInfo(mode string, ports []db.Port, machine *fly.Machine) *Netwo
 	}
 
 	return info
+}
+
+// CreateQuotaRequest handles POST /v1/quota-requests
+// Creates a new quota request for users wanting to upgrade their tier.
+// This endpoint is public (no auth required) but can optionally be used with auth.
+func (h *Handlers) CreateQuotaRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse request body
+	var req QuotaRequestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, fmt.Errorf("%w: invalid JSON", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Email == "" {
+		WriteError(w, fmt.Errorf("%w: email is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return
+	}
+
+	// Build quota request model
+	quotaReq := &db.QuotaRequest{
+		Email:           req.Email,
+		Name:            req.Name,
+		Company:         req.Company,
+		UseCase:         req.UseCase,
+		RequestedLimits: req.RequestedLimits,
+		Budget:          req.Budget,
+	}
+
+	// If authenticated, attach API key info
+	if apiKeyID, ok := GetAPIKeyID(ctx); ok {
+		quotaReq.APIKeyID = &apiKeyID
+
+		// Try to get current tier from context
+		if tier, ok := GetAPIKeyTier(ctx); ok {
+			quotaReq.CurrentTier = &tier
+		}
+	}
+
+	// Create in database
+	created, err := h.db.CreateQuotaRequest(ctx, quotaReq)
+	if err != nil {
+		WriteError(w, fmt.Errorf("%w: failed to create quota request: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	// Build response
+	response := QuotaRequestResponse{
+		ID:        created.ID,
+		Status:    QuotaStatusPending,
+		Message:   "Your quota request has been submitted. We'll review it and get back to you soon.",
+		CreatedAt: created.CreatedAt.Format(time.RFC3339),
+	}
+
+	WriteJSON(w, response, http.StatusCreated)
 }
 
 // buildSessionResponse creates a SessionResponse from a database Session

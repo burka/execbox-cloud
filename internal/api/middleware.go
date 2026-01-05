@@ -50,18 +50,21 @@ func AuthMiddleware(dbClient DBClient) func(http.Handler) http.Handler {
 				return
 			}
 
-			// 5. Set API key ID and rate limit in context
+			// 5. Set API key ID, rate limit, and tier in context
 			ctx := WithAPIKeyID(r.Context(), apiKey.ID)
 			ctx = WithAPIKeyRateLimit(ctx, apiKey.RateLimitRPS)
+			ctx = WithAPIKeyTier(ctx, apiKey.Tier)
 
 			// 6. Update last_used_at async (don't block the request)
 			go func() {
-				// Use a background context with timeout to avoid holding resources
+				// Use detached context - we want the update to complete even if client disconnects
+				// This is intentional fire-and-forget behavior for non-critical tracking
 				updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 
 				if err := dbClient.UpdateAPIKeyLastUsed(updateCtx, apiKey.ID); err != nil {
-					slog.Error("failed to update API key last used", "error", err, "api_key_id", apiKey.ID)
+					// Use Warn instead of Error since this is non-critical tracking
+					slog.Warn("failed to update API key last used", "error", err, "api_key_id", apiKey.ID)
 				}
 			}()
 

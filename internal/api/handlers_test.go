@@ -130,6 +130,33 @@ func (m *mockHandlerDB) UpdateAPIKeyLastUsed(ctx context.Context, id uuid.UUID) 
 	return nil
 }
 
+func (m *mockHandlerDB) GetActiveSessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	count := 0
+	for _, session := range m.sessions {
+		if session.APIKeyID == apiKeyID && (session.Status == "running" || session.Status == "pending") {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockHandlerDB) GetDailySessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	count := 0
+	for _, session := range m.sessions {
+		if session.APIKeyID == apiKeyID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockHandlerDB) CreateQuotaRequest(ctx context.Context, req *db.QuotaRequest) (*db.QuotaRequest, error) {
+	req.ID = 1
+	req.Status = "pending"
+	req.CreatedAt = time.Now().UTC()
+	return req, nil
+}
+
 // mockHandlerFly is a mock implementation of the Fly client for handler tests
 type mockHandlerFly struct {
 	createMachineErr  error

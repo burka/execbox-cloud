@@ -98,21 +98,30 @@ func (s *Server) registerRoutes() {
 	// Health check endpoint (no auth required)
 	s.router.Get("/health", s.healthCheck)
 
-	// API v1 routes with authentication and rate limiting
+	// API v1 routes
 	s.router.Route("/v1", func(r chi.Router) {
-		// Apply auth middleware first, then rate limiting
-		r.Use(AuthMiddleware(s.db))
-		r.Use(s.rateLimiter.Middleware())
+		// Public endpoints with IP-based rate limiting
+		r.Group(func(r chi.Router) {
+			r.Use(s.rateLimiter.IPMiddleware())
+			r.Post("/quota-requests", s.handlers.CreateQuotaRequest)
+		})
 
-		// Session management
-		r.Post("/sessions", s.handlers.CreateSession)
-		r.Get("/sessions", s.handlers.ListSessions)
-		r.Get("/sessions/{id}", s.handlers.GetSession)
-		r.Post("/sessions/{id}/stop", s.handlers.StopSession)
-		r.Delete("/sessions/{id}", s.handlers.KillSession)
+		// Authenticated endpoints
+		r.Group(func(r chi.Router) {
+			// Apply auth middleware first, then rate limiting
+			r.Use(AuthMiddleware(s.db))
+			r.Use(s.rateLimiter.Middleware())
 
-		// WebSocket attach endpoint
-		r.Get("/sessions/{id}/attach", s.handleAttach)
+			// Session management
+			r.Post("/sessions", s.handlers.CreateSession)
+			r.Get("/sessions", s.handlers.ListSessions)
+			r.Get("/sessions/{id}", s.handlers.GetSession)
+			r.Post("/sessions/{id}/stop", s.handlers.StopSession)
+			r.Delete("/sessions/{id}", s.handlers.KillSession)
+
+			// WebSocket attach endpoint
+			r.Get("/sessions/{id}/attach", s.handleAttach)
+		})
 	})
 }
 

@@ -58,56 +58,9 @@ func (w *wsWriter) WriteMessage(messageType int, data []byte) error {
 //     - Goroutine 3: stderr → WebSocket (machine errors to client)
 //     - Goroutine 4: Wait for exit, send exit message
 func (h *Handlers) AttachSession(w http.ResponseWriter, r *http.Request, sessionID string, apiKey *db.APIKey) {
-	ctx := r.Context()
-
-	// 1. Get session from database
-	session, err := h.db.GetSession(ctx, sessionID)
-	if err != nil {
-		WriteError(w, ErrNotFound, http.StatusNotFound, CodeNotFound)
-		return
-	}
-
-	// 2. Check ownership - verify this API key owns the session
-	if session.APIKeyID != apiKey.ID {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
-	}
-
-	// 3. Verify session is running
-	if session.Status != "running" {
-		WriteError(w, fmt.Errorf("session is not running (status: %s)", session.Status),
-			http.StatusBadRequest, CodeBadRequest)
-		return
-	}
-
-	// 4. Check protocol preference
-	protocol := r.URL.Query().Get("protocol")
-	if protocol == "" {
-		protocol = "binary" // Default to binary
-	}
-
-	useBinary := protocol == "binary"
-
-	// 5. Upgrade to WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		// upgrader.Upgrade already wrote the error response
-		return
-	}
-	defer conn.Close()
-
-	// Create thread-safe writer
-	writer := &wsWriter{conn: conn}
-
-	// TODO: Connect to Fly machine using session.FlyMachineID
-	// For now, we'll create a placeholder that demonstrates the protocol
-	// When Fly integration is ready, replace this with actual machine I/O
-
-	if useBinary {
-		h.handleBinaryProtocol(ctx, writer, conn, session)
-	} else {
-		h.handleJSONProtocol(ctx, writer, conn, session)
-	}
+	// Feature not yet implemented - return clear error
+	// TODO: Implement actual WebSocket attach when Fly machine I/O is ready
+	WriteError(w, fmt.Errorf("session attach not yet implemented"), http.StatusNotImplemented, CodeNotImplemented)
 }
 
 // handleBinaryProtocol manages bidirectional I/O using binary protocol

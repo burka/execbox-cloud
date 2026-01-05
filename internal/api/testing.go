@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/burka/execbox-cloud/internal/db"
 	"github.com/google/uuid"
@@ -129,4 +130,37 @@ func (m *mockDB) DeleteSession(ctx context.Context, id string) error {
 
 	delete(m.sessions, id)
 	return nil
+}
+
+func (m *mockDB) GetActiveSessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, session := range m.sessions {
+		if session.APIKeyID == apiKeyID && (session.Status == "running" || session.Status == "pending") {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockDB) GetDailySessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, session := range m.sessions {
+		if session.APIKeyID == apiKeyID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockDB) CreateQuotaRequest(ctx context.Context, req *db.QuotaRequest) (*db.QuotaRequest, error) {
+	req.ID = 1
+	req.Status = "pending"
+	req.CreatedAt = time.Now().UTC()
+	return req, nil
 }

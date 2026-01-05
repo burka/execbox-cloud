@@ -14,7 +14,7 @@ import (
 // Returns an error if the key is not found or if the query fails.
 func (c *Client) GetAPIKeyByKey(ctx context.Context, key string) (*APIKey, error) {
 	query := `
-		SELECT id, key, tier, rate_limit_rps, created_at, last_used_at
+		SELECT id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
 		FROM api_keys
 		WHERE key = $1
 	`
@@ -23,7 +23,10 @@ func (c *Client) GetAPIKeyByKey(ctx context.Context, key string) (*APIKey, error
 	err := c.pool.QueryRow(ctx, query, key).Scan(
 		&apiKey.ID,
 		&apiKey.Key,
+		&apiKey.Email,
 		&apiKey.Tier,
+		&apiKey.TierExpiresAt,
+		&apiKey.TierUpdatedAt,
 		&apiKey.RateLimitRPS,
 		&apiKey.CreatedAt,
 		&apiKey.LastUsedAt,
@@ -425,4 +428,78 @@ func (c *Client) TouchImageCache(ctx context.Context, hash string) error {
 	}
 
 	return nil
+}
+
+// ============================================================================
+// Quota Enforcement Queries
+// ============================================================================
+
+// GetActiveSessionCount counts sessions with status 'running' or 'pending' for an API key.
+func (c *Client) GetActiveSessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM sessions
+		WHERE api_key_id = $1
+		  AND status IN ('running', 'pending')
+	`
+
+	var count int
+	err := c.pool.QueryRow(ctx, query, apiKeyID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get active session count: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetDailySessionCount counts sessions created today (UTC) for an API key.
+func (c *Client) GetDailySessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM sessions
+		WHERE api_key_id = $1
+		  AND created_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC')
+	`
+
+	var count int
+	err := c.pool.QueryRow(ctx, query, apiKeyID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get daily session count: %w", err)
+	}
+
+	return count, nil
+}
+
+// ============================================================================
+// Quota Request Queries
+// ============================================================================
+
+// CreateQuotaRequest creates a new quota request and returns the created record.
+func (c *Client) CreateQuotaRequest(ctx context.Context, req *QuotaRequest) (*QuotaRequest, error) {
+	query := `
+		INSERT INTO quota_requests (
+			api_key_id, email, name, company, current_tier,
+			requested_limits, budget, use_case, status, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
+		RETURNING id, created_at
+	`
+
+	err := c.pool.QueryRow(ctx, query,
+		req.APIKeyID,
+		req.Email,
+		req.Name,
+		req.Company,
+		req.CurrentTier,
+		req.RequestedLimits,
+		req.Budget,
+		req.UseCase,
+	).Scan(&req.ID, &req.CreatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create quota request: %w", err)
+	}
+
+	req.Status = "pending"
+	return req, nil
 }

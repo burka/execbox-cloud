@@ -8,11 +8,12 @@ import (
 
 // Standard API errors
 var (
-	ErrNotFound     = errors.New("session not found")
-	ErrUnauthorized = errors.New("unauthorized")
-	ErrBadRequest   = errors.New("bad request")
-	ErrConflict     = errors.New("session already stopped")
-	ErrInternal     = errors.New("internal server error")
+	ErrNotFound      = errors.New("session not found")
+	ErrUnauthorized  = errors.New("unauthorized")
+	ErrBadRequest    = errors.New("bad request")
+	ErrConflict      = errors.New("session already stopped")
+	ErrInternal      = errors.New("internal server error")
+	ErrQuotaExceeded = errors.New("quota exceeded")
 )
 
 // ErrorResponse defines the standard error response format
@@ -23,11 +24,13 @@ type ErrorResponse struct {
 
 // Error code constants matching the spec
 const (
-	CodeBadRequest   = "BAD_REQUEST"
-	CodeUnauthorized = "UNAUTHORIZED"
-	CodeNotFound     = "NOT_FOUND"
-	CodeConflict     = "CONFLICT"
-	CodeInternal     = "INTERNAL"
+	CodeBadRequest     = "BAD_REQUEST"
+	CodeUnauthorized   = "UNAUTHORIZED"
+	CodeNotFound       = "NOT_FOUND"
+	CodeConflict       = "CONFLICT"
+	CodeInternal       = "INTERNAL"
+	CodeQuotaExceeded  = "QUOTA_EXCEEDED"
+	CodeNotImplemented = "NOT_IMPLEMENTED"
 )
 
 // WriteError writes a JSON error response to the HTTP response writer

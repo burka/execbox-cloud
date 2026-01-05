@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,7 +17,13 @@ func main() {
 	// 1. Load configuration from environment
 	cfg := loadConfig()
 
-	// 2. Set up slog with configured log level
+	// 2. Validate configuration before proceeding
+	if err := validateConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 3. Set up slog with configured log level
 	setupLogging(cfg.LogLevel)
 
 	slog.Info("starting execbox-cloud server",
@@ -24,7 +31,7 @@ func main() {
 		"log_level", cfg.LogLevel,
 	)
 
-	// 3. Create server
+	// 4. Create server
 	server, err := api.NewServer(cfg)
 	if err != nil {
 		slog.Error("failed to create server", "error", err)
@@ -32,7 +39,7 @@ func main() {
 	}
 	defer server.Close()
 
-	// 4. Set up HTTP server
+	// 5. Set up HTTP server
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      server.Router(),
@@ -41,7 +48,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 5. Handle graceful shutdown
+	// 6. Handle graceful shutdown
 	// Create channel to listen for errors from the HTTP server
 	serverErrors := make(chan error, 1)
 
@@ -82,6 +89,17 @@ func main() {
 
 		slog.Info("server stopped gracefully")
 	}
+}
+
+// validateConfig checks that required configuration values are set.
+func validateConfig(cfg *api.Config) error {
+	if cfg.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.FlyToken == "" {
+		return fmt.Errorf("FLY_API_TOKEN is required")
+	}
+	return nil
 }
 
 // loadConfig reads configuration from environment variables with sensible defaults.
