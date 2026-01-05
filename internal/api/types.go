@@ -4,12 +4,21 @@ package api
 // CreateSessionRequest defines the request body for POST /v1/sessions
 type CreateSessionRequest struct {
 	Image     string            `json:"image"`
+	Setup     []string          `json:"setup,omitempty"`  // RUN commands to bake into image
+	Files     []FileSpec        `json:"files,omitempty"`  // Files to include in image
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	WorkDir   string            `json:"workDir,omitempty"`
 	Resources *Resources        `json:"resources,omitempty"`
 	Network   string            `json:"network,omitempty"` // none|outgoing|exposed
 	Ports     []PortSpec        `json:"ports,omitempty"`
+}
+
+// FileSpec defines a file to include in the built image
+type FileSpec struct {
+	Path     string `json:"path"`               // Destination path in container
+	Content  string `json:"content"`            // File content (text or base64)
+	Encoding string `json:"encoding,omitempty"` // "utf8" (default) or "base64"
 }
 
 // Resources defines resource limits for a session

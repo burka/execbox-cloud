@@ -51,10 +51,19 @@ func NewServer(cfg *Config) (*Server, error) {
 	// 3. Create handlers
 	handlers := NewHandlers(dbClient, flyClient)
 
-	// 4. Create rate limiter
+	// 4. Set up image builder and cache
+	builder := fly.NewBuilder(flyClient, cfg.FlyAppName)
+	cache := fly.NewDBBuildCache(
+		dbClient.GetImageCache,
+		dbClient.PutImageCache,
+		dbClient.TouchImageCache,
+	)
+	handlers.SetBuilder(builder, cache)
+
+	// 5. Create rate limiter
 	rateLimiter := NewRateLimiter()
 
-	// 5. Set up chi router with middleware
+	// 6. Set up chi router with middleware
 	router := chi.NewRouter()
 
 	// Global middleware
@@ -63,7 +72,7 @@ func NewServer(cfg *Config) (*Server, error) {
 	router.Use(RecoveryMiddleware)
 	router.Use(LoggingMiddleware)
 
-	// 6. Register routes
+	// 7. Create server and register routes
 	s := &Server{
 		router:      router,
 		handlers:    handlers,

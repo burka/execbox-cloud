@@ -15,11 +15,13 @@
 - [ ] Integration tests with real Fly.io
 - [ ] Deploy to Fly.io
 
-## Phase 2: Image Building
-- [ ] Setup command hashing
-- [ ] Fly remote builder integration
-- [ ] Image cache table
-- [ ] Cache hit/miss tracking
+## Phase 2: Image Building (In Progress)
+- [x] Setup command hashing (SHA256-based content addressing)
+- [x] Image cache table (002_image_cache.sql)
+- [x] Cache hit/miss tracking via DB queries
+- [x] Builder interface and wiring in handlers
+- [ ] Fly remote builder integration (actual build implementation)
+- [ ] Base64 file encoding support
 
 ## Phase 3: Dashboard
 - [ ] React + shadcn/ui frontend

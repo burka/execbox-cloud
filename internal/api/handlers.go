@@ -21,10 +21,17 @@ type FlyClient interface {
 	DestroyMachine(ctx context.Context, machineID string) error
 }
 
+// ImageBuilder defines the image building operations.
+type ImageBuilder interface {
+	Resolve(ctx context.Context, spec *fly.BuildSpec, cache fly.BuildCache) (string, error)
+}
+
 // Handlers holds the HTTP request handlers and their dependencies.
 type Handlers struct {
-	db  DBClient
-	fly FlyClient
+	db      DBClient
+	fly     FlyClient
+	builder ImageBuilder
+	cache   fly.BuildCache
 }
 
 // NewHandlers creates a new Handlers instance with the provided database and Fly clients.
@@ -33,6 +40,12 @@ func NewHandlers(dbClient DBClient, flyClient FlyClient) *Handlers {
 		db:  dbClient,
 		fly: flyClient,
 	}
+}
+
+// SetBuilder configures the image builder for handlers that need it.
+func (h *Handlers) SetBuilder(builder ImageBuilder, cache fly.BuildCache) {
+	h.builder = builder
+	h.cache = cache
 }
 
 // CreateSession handles POST /v1/sessions
@@ -63,8 +76,46 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 	// Generate session ID
 	sessionID := generateSessionID()
 
-	// Build Fly machine configuration
+	// Resolve image (build if setup/files provided)
+	resolvedImage := req.Image
+	var setupHash string
+	if len(req.Setup) > 0 || len(req.Files) > 0 {
+		if h.builder == nil {
+			WriteError(w, fmt.Errorf("%w: image building not configured", ErrInternal), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+
+		// Build the spec
+		spec := &fly.BuildSpec{
+			BaseImage: req.Image,
+			Setup:     req.Setup,
+			Files:     make([]fly.BuildFile, 0, len(req.Files)),
+		}
+
+		for _, f := range req.Files {
+			content := []byte(f.Content)
+			// TODO: Handle base64 encoding if f.Encoding == "base64"
+			spec.Files = append(spec.Files, fly.BuildFile{
+				Path:    f.Path,
+				Content: content,
+			})
+		}
+
+		// Compute hash for tracking
+		setupHash = fly.ComputeHash(spec)
+
+		// Resolve to registry tag
+		var err error
+		resolvedImage, err = h.builder.Resolve(ctx, spec, h.cache)
+		if err != nil {
+			WriteError(w, fmt.Errorf("%w: failed to resolve image: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+	}
+
+	// Build Fly machine configuration with resolved image
 	machineConfig := buildMachineConfig(&req)
+	machineConfig.Image = resolvedImage
 
 	// Create Fly machine
 	machine, err := h.fly.CreateMachine(ctx, machineConfig)
@@ -81,12 +132,15 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		ID:           sessionID,
 		APIKeyID:     apiKeyID,
 		FlyMachineID: &machine.ID,
-		Image:        req.Image,
+		Image:        resolvedImage,
 		Command:      req.Command,
 		Env:          req.Env,
 		Status:       "pending",
 		Ports:        ports,
 		CreatedAt:    time.Now().UTC(),
+	}
+	if setupHash != "" {
+		session.SetupHash = &setupHash
 	}
 
 	if err := h.db.CreateSession(ctx, session); err != nil {

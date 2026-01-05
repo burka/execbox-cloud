@@ -369,3 +369,60 @@ func (c *Client) IncrementUsage(ctx context.Context, apiKeyID uuid.UUID, duratio
 
 	return nil
 }
+
+// ============================================================================
+// Image Cache Queries
+// ============================================================================
+
+// GetImageCache retrieves a cached image by its hash.
+// Returns (registryTag, true, nil) if found, ("", false, nil) if not found.
+func (c *Client) GetImageCache(ctx context.Context, hash string) (string, bool, error) {
+	query := `
+		SELECT registry_tag
+		FROM image_cache
+		WHERE hash = $1
+	`
+
+	var registryTag string
+	err := c.pool.QueryRow(ctx, query, hash).Scan(&registryTag)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("failed to get image cache: %w", err)
+	}
+
+	return registryTag, true, nil
+}
+
+// PutImageCache stores a new image cache entry.
+func (c *Client) PutImageCache(ctx context.Context, hash, baseImage, registryTag string) error {
+	query := `
+		INSERT INTO image_cache (hash, base_image, registry_tag, created_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (hash) DO NOTHING
+	`
+
+	_, err := c.pool.Exec(ctx, query, hash, baseImage, registryTag)
+	if err != nil {
+		return fmt.Errorf("failed to put image cache: %w", err)
+	}
+
+	return nil
+}
+
+// TouchImageCache updates the last_used_at timestamp for a cached image.
+func (c *Client) TouchImageCache(ctx context.Context, hash string) error {
+	query := `
+		UPDATE image_cache
+		SET last_used_at = NOW()
+		WHERE hash = $1
+	`
+
+	_, err := c.pool.Exec(ctx, query, hash)
+	if err != nil {
+		return fmt.Errorf("failed to touch image cache: %w", err)
+	}
+
+	return nil
+}
