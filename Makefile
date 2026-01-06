@@ -79,32 +79,26 @@ clean:
 setup-env:
 	@if [ ! -f .env ]; then \
 		echo "Creating .env file with defaults..."; \
-cat > .env << 'EOF'
-# Database Configuration
-DATABASE_URL=postgresql://postgres:postgres@localhost:5433/execbox
-DB_HOST=localhost
-DB_PORT=5433
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=execbox
-
-# Fly.io API (required for machine management)
-FLY_API_TOKEN=your-fly-api-token-here
-
-# Supabase (optional, if using Supabase instead of local PostgreSQL)
-# SUPABASE_URL=your-project.supabase.co
-# SUPABASE_ANON_KEY=your-anon-key-here
-
-# Application Settings
-LOG_LEVEL=debug
-PORT=8080
-
-# Frontend Development
-VITE_API_BASE_URL=http://localhost:8080
-EOF
-		echo "✅ .env file created. Please update FLY_API_TOKEN and other values as needed."; \
+		echo "# Database Configuration" > .env; \
+		echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/execbox" >> .env; \
+		echo "DB_HOST=localhost" >> .env; \
+		echo "DB_PORT=5433" >> .env; \
+		echo "DB_USER=postgres" >> .env; \
+		echo "DB_PASSWORD=postgres" >> .env; \
+		echo "DB_NAME=execbox" >> .env; \
+		echo "" >> .env; \
+		echo "# Fly.io API (required for machine management)" >> .env; \
+		echo "FLY_API_TOKEN=your-fly-api-token-here" >> .env; \
+		echo "" >> .env; \
+		echo "# Application Settings" >> .env; \
+		echo "LOG_LEVEL=debug" >> .env; \
+		echo "PORT=8080" >> .env; \
+		echo "" >> .env; \
+		echo "# Frontend Development" >> .env; \
+		echo "VITE_API_BASE_URL=http://localhost:8080" >> .env; \
+		echo "Environment file created. Please update FLY_API_TOKEN and other values as needed."; \
 	else \
-		echo "✅ .env file already exists"; \
+		echo "Environment file already exists"; \
 	fi
 
 # Development Database with Docker Compose
@@ -119,34 +113,31 @@ run-devdb: setup-env
 		exit 1; \
 	fi
 	@if [ ! -f docker-compose.yml ]; then \
-		echo "Creating docker-compose.yml (using port 5433 to avoid conflicts)..."; \
-		cat > docker-compose.yml << 'EOF'
-version: '3.8'
-
-services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: execbox-postgres
-    environment:
-      POSTGRES_DB: execbox
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./internal/db/migrations:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d execbox"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-    driver: local
-EOF
+		echo "Creating docker-compose.yml..."; \
+		echo "version: '3.8'" > docker-compose.yml; \
+		echo "" >> docker-compose.yml; \
+		echo "services:" >> docker-compose.yml; \
+		echo "  postgres:" >> docker-compose.yml; \
+		echo "    image: postgres:15-alpine" >> docker-compose.yml; \
+		echo "    container_name: execbox-postgres" >> docker-compose.yml; \
+		echo "    environment:" >> docker-compose.yml; \
+		echo "      POSTGRES_DB: execbox" >> docker-compose.yml; \
+		echo "      POSTGRES_USER: postgres" >> docker-compose.yml; \
+		echo "      POSTGRES_PASSWORD: postgres" >> docker-compose.yml; \
+		echo "    ports:" >> docker-compose.yml; \
+		echo "      - 5433:5432" >> docker-compose.yml; \
+		echo "    volumes:" >> docker-compose.yml; \
+		echo "      - postgres_data:/var/lib/postgresql/data" >> docker-compose.yml; \
+		echo "    healthcheck:" >> docker-compose.yml; \
+		echo "      test: ['CMD-SHELL', 'pg_isready -U postgres -d execbox']" >> docker-compose.yml; \
+		echo "      interval: 5s" >> docker-compose.yml; \
+		echo "      timeout: 5s" >> docker-compose.yml; \
+		echo "      retries: 5" >> docker-compose.yml; \
+		echo "    restart: unless-stopped" >> docker-compose.yml; \
+		echo "" >> docker-compose.yml; \
+		echo "volumes:" >> docker-compose.yml; \
+		echo "  postgres_data:" >> docker-compose.yml; \
+		echo "    driver: local" >> docker-compose.yml; \
 	fi
 	docker-compose up -d postgres
 	@echo "⏳ Waiting for database to be ready..."

@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { createApiKey } from '@/lib/api';
 import { setStoredApiKey, getStoredApiKey } from '@/lib/auth';
 
 export function Landing() {
@@ -14,32 +15,54 @@ export function Landing() {
   const [email, setEmail] = useState('');
   const [existingKey, setExistingKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Waitlist form state
+  const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
+  const [useCase, setUseCase] = useState('');
+  const [usageIntent, setUsageIntent] = useState('');
+  const [budgetRange, setBudgetRange] = useState('');
+  
   const { toast } = useToast();
   const navigate = useNavigate();
 
   // Check if already logged in
   const isLoggedIn = !!getStoredApiKey();
 
-  const handleCreateKey = async (e: React.FormEvent) => {
+  const handleJoinWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!name || !email || !useCase || !usageIntent || !budgetRange) {
+      toast({
+        title: 'Missing fields',
+        description: 'Please fill in all required fields',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setIsLoading(true);
 
     try {
-      const response = await createApiKey(email);
-      setStoredApiKey(response.key);
-
+      // TODO: Create waitlist submission API call
+      // For now, just show success message
       toast({
-        title: 'Success!',
-        description: 'Your API key has been created. Redirecting to dashboard...',
+        title: 'You\'re on the waitlist!',
+        description: 'We\'ll notify you when your spot is available.',
       });
 
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 1000);
+      // Reset form and close modal
+      setName('');
+      setEmail('');
+      setCompany('');
+      setUseCase('');
+      setUsageIntent('');
+      setBudgetRange('');
+      setShowModal(false);
     } catch (error) {
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create API key',
+        description: error instanceof Error ? error.message : 'Failed to join waitlist',
         variant: 'destructive',
       });
     } finally {
@@ -82,16 +105,28 @@ export function Landing() {
 
         <div className="flex justify-center gap-4 pt-4">
           {isLoggedIn ? (
-            <Button size="lg" className="text-lg px-8 py-6" onClick={() => navigate('/dashboard')}>
-              Go to Dashboard
-            </Button>
+            <>
+              <Button size="lg" className="text-lg px-8 py-6" onClick={() => navigate('/dashboard')}>
+                Go to Dashboard
+              </Button>
+              <Button size="lg" variant="ghost" className="text-lg px-8 py-6" asChild>
+                <a href="https://github.com/burka/execbox" target="_blank" rel="noopener noreferrer">
+                  GitHub
+                </a>
+              </Button>
+            </>
           ) : (
             <>
               <Button size="lg" className="text-lg px-8 py-6" onClick={() => setShowModal(true)}>
-                Get API Key
+                Join Waitlist
               </Button>
               <Button size="lg" variant="outline" className="text-lg px-8 py-6" onClick={() => setShowLoginModal(true)}>
                 Login
+              </Button>
+              <Button size="lg" variant="ghost" className="text-lg px-8 py-6" asChild>
+                <a href="https://github.com/burka/execbox" target="_blank" rel="noopener noreferrer">
+                  GitHub
+                </a>
               </Button>
             </>
           )}
@@ -141,18 +176,37 @@ export function Landing() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <Card className="w-full max-w-md m-4" onClick={(e) => e.stopPropagation()}>
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" 
+          onClick={() => setShowModal(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowModal(false);
+          }}
+          tabIndex={-1}
+        >
+          <Card className="w-full max-w-lg m-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <CardHeader>
-              <CardTitle>Get Your API Key</CardTitle>
+              <CardTitle>Join the Waitlist</CardTitle>
               <CardDescription>
-                Enter your email to create your API key
+                Get early access to execbox-cloud and help shape the future of code execution
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleCreateKey} className="space-y-4">
+              <form onSubmit={handleJoinWaitlist} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
+                  <Label htmlFor="name">Name *</Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email *</Label>
                   <Input
                     id="email"
                     type="email"
@@ -163,9 +217,58 @@ export function Landing() {
                     disabled={isLoading}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company">Company</Label>
+                  <Input
+                    id="company"
+                    type="text"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    placeholder="Your company (optional)"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="useCase">Use Case *</Label>
+                  <Textarea
+                    id="useCase"
+                    required
+                    value={useCase}
+                    onChange={(e) => setUseCase(e.target.value)}
+                    placeholder="Describe what you want to build with execbox-cloud..."
+                    rows={3}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="usageIntent">Usage Intent *</Label>
+                  <Select value={usageIntent} onValueChange={setUsageIntent} disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your usage intent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="personal">Personal projects (light usage)</SelectItem>
+                      <SelectItem value="team">Small team collaboration</SelectItem>
+                      <SelectItem value="production">Production workloads (high value)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="budgetRange">Budget Range *</Label>
+                  <Select value={budgetRange} onValueChange={setBudgetRange} disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your budget range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="free">Free tier only</SelectItem>
+                      <SelectItem value="10-50">$10-50/month</SelectItem>
+                      <SelectItem value="50+">$50+/month</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex gap-2">
                   <Button type="submit" className="flex-1" disabled={isLoading}>
-                    {isLoading ? 'Creating...' : 'Create API Key'}
+                    {isLoading ? 'Joining...' : 'Join Waitlist'}
                   </Button>
                   <Button
                     type="button"
@@ -183,7 +286,14 @@ export function Landing() {
       )}
 
       {showLoginModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowLoginModal(false)}>
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" 
+          onClick={() => setShowLoginModal(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowLoginModal(false);
+          }}
+          tabIndex={-1}
+        >
           <Card className="w-full max-w-md m-4" onClick={(e) => e.stopPropagation()}>
             <CardHeader>
               <CardTitle>Login with API Key</CardTitle>
