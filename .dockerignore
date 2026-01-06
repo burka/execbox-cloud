@@ -12,5 +12,6 @@ bin/
 .vscode/
 .idea/
 .claude/
+node_modules/
 tmp/
 *.log
