@@ -71,7 +71,7 @@ func OpenAPIInfo() huma.OpenAPI {
 				Description: "Production server",
 			},
 			{
-				URL:         "http://localhost:8080",
+				URL:         "http://localhost:28080",
 				Description: "Local development server",
 			},
 		},

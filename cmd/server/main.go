@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/burka/execbox-cloud/internal/api"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -21,6 +22,8 @@ func main() {
 
 	// Handle --openapi flag
 	if *openAPIFlag {
+		// Load .env files first for database connection
+		loadEnvFiles()
 		spec, err := api.GenerateOpenAPISpec()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to generate OpenAPI spec: %v\n", err)
@@ -30,7 +33,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 1. Load configuration from environment
+	// 1. Load .env files and configuration from environment
+	loadEnvFiles()
 	cfg := loadConfig()
 
 	// 2. Validate configuration before proceeding
@@ -118,16 +122,50 @@ func validateConfig(cfg *api.Config) error {
 	return nil
 }
 
+// loadEnvFiles loads environment variables from .env files.
+// It looks for .env.local, .env.development, then .env (in that order).
+func loadEnvFiles() {
+	// Try to load .env.local first (highest priority)
+	if err := godotenv.Load(".env.local"); err == nil {
+		slog.Debug("loaded .env.local")
+	}
+
+	// Try to load .env.development for development environment
+	if err := godotenv.Load(".env.development"); err == nil {
+		slog.Debug("loaded .env.development")
+	}
+
+	// Finally load .env (fallback)
+	if err := godotenv.Load(".env"); err == nil {
+		slog.Debug("loaded .env")
+	}
+}
+
 // loadConfig reads configuration from environment variables with sensible defaults.
 func loadConfig() *api.Config {
+	// Calculate development ports: Use 20000 + current port if not explicitly set
+	devPort := calculateDevPort(getEnv("PORT", ""))
+
 	return &api.Config{
-		Port:        getEnv("PORT", "8080"),
+		Port:        devPort,
 		DatabaseURL: getEnv("DATABASE_URL", ""),
 		FlyToken:    getEnv("FLY_API_TOKEN", ""),
 		FlyOrg:      getEnv("FLY_ORG", ""),
 		FlyAppName:  getEnv("FLY_APP_NAME", ""),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
 	}
+}
+
+// calculateDevPort returns a high port number for development.
+// If PORT is explicitly set, use it. Otherwise use 20000 + original port.
+func calculateDevPort(currentPort string) string {
+	if currentPort != "" {
+		// Port was explicitly set in environment, use it
+		return currentPort
+	}
+
+	// Default to 28080 (20000 + 8080) for development
+	return "28080"
 }
 
 // getEnv retrieves an environment variable or returns a default value.

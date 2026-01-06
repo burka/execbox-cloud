@@ -37,10 +37,10 @@ dev-frontend:
 # Usage: Run 'make run' in one terminal, 'make dev-frontend' in another
 dev:
 	@echo "For development, run these in separate terminals:"
-	@echo "  Terminal 1: make run          (Go backend on :8080)"
-	@echo "  Terminal 2: make dev-frontend (Vite dev server on :5173)"
+	@echo "  Terminal 1: make run          (Go backend on :28080)"
+	@echo "  Terminal 2: make dev-frontend (Vite dev server on :25173)"
 	@echo ""
-	@echo "Then open http://localhost:5173 in your browser"
+	@echo "Then open http://localhost:25173 in your browser"
 
 # Go tests only
 test:
@@ -92,10 +92,13 @@ setup-env:
 		echo "" >> .env; \
 		echo "# Application Settings" >> .env; \
 		echo "LOG_LEVEL=debug" >> .env; \
-		echo "PORT=8080" >> .env; \
+		echo "# Development Settings (using high ports to avoid conflicts)" >> .env; \
+		echo "PORT=28080" >> .env; \
 		echo "" >> .env; \
-		echo "# Frontend Development" >> .env; \
-		echo "VITE_API_BASE_URL=http://localhost:8080" >> .env; \
+		echo "# Frontend Development (development ports)" >> .env; \
+		echo "VITE_API_BASE_URL=http://localhost:28080" >> .env; \
+		echo "VITE_BACKEND_PORT=28080" >> .env; \
+		echo "VITE_FRONTEND_PORT=25173" >> .env; \
 		echo "Environment file created. Please update FLY_API_TOKEN and other values as needed."; \
 	else \
 		echo "Environment file already exists"; \
@@ -174,8 +177,8 @@ dev-db: run-devdb
 	@echo ""
 	@echo "🔗 Services:"
 	@echo "   • Database: postgresql://postgres:postgres@localhost:5433/execbox"
-	@echo "   • Backend:  http://localhost:8080 (API + OpenAPI)"
-	@echo "   • Frontend: http://localhost:5173 (React Dashboard)"
+	@echo "   • Backend:  http://localhost:28080 (API + OpenAPI)"
+	@echo "   • Frontend: http://localhost:25173 (React Dashboard)"
 	@echo ""
 	@echo "🎯 Quick start:"
 	@echo "   Terminal 1: make run           # Start backend server"
@@ -196,7 +199,7 @@ dev-with-db: setup-env run-devdb
 	@echo "   make run          # Backend (port 8080)"
 	@echo "   make dev-frontend # Frontend (port 5173)"
 	@echo ""
-	@echo "Then visit: http://localhost:5173"
+	@echo "Then visit: http://localhost:25173"
 
 # Complete Development Setup (automated script)
 dev-setup:
@@ -275,8 +278,8 @@ help:
 	@echo "  make db-status    - Show database status"
 	@echo ""
 	@echo "🏃 Development:"
-	@echo "  make run          - Run Go backend on :8080"
-	@echo "  make dev-frontend - Run Vite dev server on :5173 (hot reload)"
+	@echo "  make run          - Run Go backend on :28080"
+	@echo "  make dev-frontend - Run Vite dev server on :25173 (hot reload)"
 	@echo "  make dev          - Show development mode instructions"
 	@echo ""
 	@echo "🏗️  Build:"

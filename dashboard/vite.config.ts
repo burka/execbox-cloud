@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// Read backend port from environment variables for development
+const backendPort = process.env.VITE_BACKEND_PORT || '28080'
+const frontendPort = parseInt(process.env.VITE_FRONTEND_PORT || '25173')
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -11,23 +15,23 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: frontendPort,
     proxy: {
       // Proxy API requests to Go backend
       '/v1': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/openapi.json': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/openapi.yaml': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
     },
