@@ -541,6 +541,143 @@ func (h *Handlers) CreateQuotaRequest(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, response, http.StatusCreated)
 }
 
+// GetAccount handles GET /v1/account
+// Returns account information for the authenticated API key.
+func (h *Handlers) GetAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get API key ID from context
+	apiKeyID, ok := GetAPIKeyID(ctx)
+	if !ok {
+		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
+		return
+	}
+
+	// Get full API key details from database
+	apiKey, err := h.db.GetAPIKeyByID(ctx, apiKeyID)
+	if err != nil {
+		WriteError(w, fmt.Errorf("%w: failed to get API key: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	// Build response
+	response := AccountResponse{
+		Tier:          apiKey.Tier,
+		Email:         apiKey.Email,
+		APIKeyID:      apiKey.ID.String(),
+		APIKeyPreview: maskAPIKey(apiKey.Key),
+		CreatedAt:     apiKey.CreatedAt.Format(time.RFC3339),
+	}
+
+	if apiKey.TierExpiresAt != nil {
+		expiresAt := apiKey.TierExpiresAt.Format(time.RFC3339)
+		response.TierExpiresAt = &expiresAt
+	}
+
+	WriteJSON(w, response, http.StatusOK)
+}
+
+// GetUsage handles GET /v1/account/usage
+// Returns usage statistics for the authenticated API key.
+func (h *Handlers) GetUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get API key ID and tier from context
+	apiKeyID, ok := GetAPIKeyID(ctx)
+	if !ok {
+		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
+		return
+	}
+
+	tier, ok := GetAPIKeyTier(ctx)
+	if !ok {
+		tier = TierFree // Default to free tier if not set
+	}
+
+	// Get session counts
+	dailyCount, err := h.db.GetDailySessionCount(ctx, apiKeyID)
+	if err != nil {
+		WriteError(w, fmt.Errorf("%w: failed to get daily session count: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	activeCount, err := h.db.GetActiveSessionCount(ctx, apiKeyID)
+	if err != nil {
+		WriteError(w, fmt.Errorf("%w: failed to get active session count: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	// Get tier limits
+	limits := GetTierLimits(tier)
+
+	// Calculate quota remaining
+	quotaRemaining := limits.SessionsPerDay - dailyCount
+	if IsUnlimited(limits.SessionsPerDay) {
+		quotaRemaining = -1 // Indicate unlimited
+	} else if quotaRemaining < 0 {
+		quotaRemaining = 0
+	}
+
+	// Build response
+	response := UsageResponse{
+		SessionsToday:      dailyCount,
+		ActiveSessions:     activeCount,
+		QuotaUsed:          dailyCount,
+		QuotaRemaining:     quotaRemaining,
+		Tier:               tier,
+		ConcurrentLimit:    limits.ConcurrentSessions,
+		DailyLimit:         limits.SessionsPerDay,
+		MaxDurationSeconds: limits.MaxDurationSec,
+		MaxMemoryMB:        limits.MemoryMB,
+	}
+
+	WriteJSON(w, response, http.StatusOK)
+}
+
+// CreateAPIKey handles POST /v1/keys
+// Creates a new API key (public endpoint, no auth required).
+func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse request body
+	var req CreateKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, fmt.Errorf("%w: invalid JSON", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Email == "" {
+		WriteError(w, fmt.Errorf("%w: email is required", ErrBadRequest), http.StatusBadRequest, CodeBadRequest)
+		return
+	}
+
+	// Create API key in database
+	apiKey, err := h.db.CreateAPIKey(ctx, req.Email, req.Name)
+	if err != nil {
+		WriteError(w, fmt.Errorf("%w: failed to create API key: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	// Build response
+	response := CreateKeyResponse{
+		ID:      apiKey.ID.String(),
+		Key:     apiKey.Key,
+		Tier:    apiKey.Tier,
+		Message: "API key created successfully. Save this key - it will only be shown once.",
+	}
+
+	WriteJSON(w, response, http.StatusCreated)
+}
+
+// maskAPIKey masks an API key to show only the first 7 and last 4 characters.
+func maskAPIKey(key string) string {
+	if len(key) < 12 {
+		return "sk_****"
+	}
+	return key[:7] + "..." + key[len(key)-4:]
+}
+
 // buildSessionResponse creates a SessionResponse from a database Session
 func buildSessionResponse(session *db.Session) SessionResponse {
 	response := SessionResponse{

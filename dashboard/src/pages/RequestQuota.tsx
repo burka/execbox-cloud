@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { submitQuotaRequest } from '@/lib/api';
 
 export function RequestQuota() {
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     name: '',
@@ -16,24 +18,36 @@ export function RequestQuota() {
     budget: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Quota request submitted:', formData);
+    setIsLoading(true);
 
-    toast({
-      title: 'Request Submitted',
-      description: 'We will review your quota request and get back to you soon.',
-    });
+    try {
+      await submitQuotaRequest(formData);
 
-    // Reset form
-    setFormData({
-      email: '',
-      name: '',
-      company: '',
-      use_case: '',
-      requested_limits: '',
-      budget: '',
-    });
+      toast({
+        title: 'Request Submitted',
+        description: 'We will review your quota request and get back to you soon.',
+      });
+
+      // Reset form
+      setFormData({
+        email: '',
+        name: '',
+        company: '',
+        use_case: '',
+        requested_limits: '',
+        budget: '',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to submit quota request',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -152,12 +166,13 @@ export function RequestQuota() {
             </div>
 
             <div className="flex gap-4">
-              <Button type="submit" className="flex-1">
-                Submit Request
+              <Button type="submit" className="flex-1" disabled={isLoading}>
+                {isLoading ? 'Submitting...' : 'Submit Request'}
               </Button>
               <Button
                 type="button"
                 variant="outline"
+                disabled={isLoading}
                 onClick={() =>
                   setFormData({
                     email: '',

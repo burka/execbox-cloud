@@ -125,37 +125,37 @@ type QuotaRequestResponse struct {
 
 // AccountResponse defines the response body for GET /v1/account
 type AccountResponse struct {
-	Tier          string  `json:"tier"`
-	Email         *string `json:"email,omitempty"`
-	APIKeyID      string  `json:"api_key_id"`
-	APIKeyPreview string  `json:"api_key_preview"`
-	CreatedAt     string  `json:"created_at"`
-	TierExpiresAt *string `json:"tier_expires_at,omitempty"`
+	Tier          string  `json:"tier" doc:"Account tier (free, developer, enterprise)" example:"developer"`
+	Email         *string `json:"email,omitempty" doc:"Account email address" example:"user@example.com"`
+	APIKeyID      string  `json:"api_key_id" doc:"API key identifier" example:"uuid-here"`
+	APIKeyPreview string  `json:"api_key_preview" doc:"Masked API key preview" example:"sk_live_...abcd"`
+	CreatedAt     string  `json:"created_at" doc:"Account creation timestamp (RFC3339)" example:"2024-01-15T10:30:00Z"`
+	TierExpiresAt *string `json:"tier_expires_at,omitempty" doc:"Tier expiration timestamp (RFC3339)" example:"2025-01-15T10:30:00Z"`
 }
 
 // UsageResponse defines the response body for GET /v1/account/usage
 type UsageResponse struct {
-	SessionsToday      int    `json:"sessions_today"`
-	ActiveSessions     int    `json:"active_sessions"`
-	QuotaUsed          int    `json:"quota_used"`
-	QuotaRemaining     int    `json:"quota_remaining"`
-	Tier               string `json:"tier"`
-	ConcurrentLimit    int    `json:"concurrent_limit"`
-	DailyLimit         int    `json:"daily_limit"`
-	MaxDurationSeconds int    `json:"max_duration_seconds"`
-	MaxMemoryMB        int    `json:"max_memory_mb"`
+	SessionsToday      int    `json:"sessions_today" doc:"Number of sessions created today" example:"42"`
+	ActiveSessions     int    `json:"active_sessions" doc:"Number of currently running sessions" example:"3"`
+	QuotaUsed          int    `json:"quota_used" doc:"Daily quota used" example:"42"`
+	QuotaRemaining     int    `json:"quota_remaining" doc:"Daily quota remaining (-1 for unlimited)" example:"58"`
+	Tier               string `json:"tier" doc:"Account tier" example:"developer"`
+	ConcurrentLimit    int    `json:"concurrent_limit" doc:"Max concurrent sessions (-1 for unlimited)" example:"5"`
+	DailyLimit         int    `json:"daily_limit" doc:"Max sessions per day (-1 for unlimited)" example:"100"`
+	MaxDurationSeconds int    `json:"max_duration_seconds" doc:"Max session duration in seconds" example:"3600"`
+	MaxMemoryMB        int    `json:"max_memory_mb" doc:"Max memory per session in MB" example:"512"`
 }
 
 // CreateKeyRequest defines the request body for POST /v1/keys
 type CreateKeyRequest struct {
-	Email string  `json:"email"`
-	Name  *string `json:"name,omitempty"`
+	Email string  `json:"email" doc:"Email address for the API key" example:"user@example.com" format:"email" minLength:"1"`
+	Name  *string `json:"name,omitempty" doc:"Optional display name" example:"My API Key"`
 }
 
 // CreateKeyResponse defines the response body for POST /v1/keys
 type CreateKeyResponse struct {
-	ID      string `json:"id"`
-	Key     string `json:"key"`
-	Tier    string `json:"tier"`
-	Message string `json:"message"`
+	ID      string `json:"id" doc:"API key identifier" example:"uuid-here"`
+	Key     string `json:"key" doc:"The API key (only shown once)" example:"sk_live_abc123..."`
+	Tier    string `json:"tier" doc:"Assigned tier" example:"free"`
+	Message string `json:"message" doc:"Response message" example:"API key created successfully"`
 }

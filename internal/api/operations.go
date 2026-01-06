@@ -71,6 +71,36 @@ type CreateQuotaRequestOutput struct {
 	Body QuotaRequestResponse
 }
 
+// --- Account ---
+
+// GetAccountInput is the input for GET /v1/account.
+type GetAccountInput struct {
+}
+
+// GetAccountOutput is the output for GET /v1/account.
+type GetAccountOutput struct {
+	Body AccountResponse
+}
+
+// GetUsageInput is the input for GET /v1/account/usage.
+type GetUsageInput struct {
+}
+
+// GetUsageOutput is the output for GET /v1/account/usage.
+type GetUsageOutput struct {
+	Body UsageResponse
+}
+
+// CreateAPIKeyInput is the input for POST /v1/keys.
+type CreateAPIKeyInput struct {
+	Body CreateKeyRequest
+}
+
+// CreateAPIKeyOutput is the output for POST /v1/keys.
+type CreateAPIKeyOutput struct {
+	Body CreateKeyResponse
+}
+
 // --- Health ---
 
 // HealthCheckInput is the input for GET /health.

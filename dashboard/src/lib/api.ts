@@ -1,108 +1,166 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+/**
+ * API client using openapi-fetch for type-safe API calls
+ */
+import createClient from 'openapi-fetch';
+import type { paths, components } from '../generated/api';
 
-export interface ExecutionRequest {
-  language: string;
-  code: string;
-  timeout?: number;
-  memory_limit?: number;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+// Export types for use in components
+export type AccountResponse = components['schemas']['AccountResponse'];
+export type UsageResponse = components['schemas']['UsageResponse'];
+export type CreateKeyRequest = components['schemas']['CreateKeyRequest'];
+export type CreateKeyResponse = components['schemas']['CreateKeyResponse'];
+export type QuotaRequestRequest = components['schemas']['QuotaRequestRequest'];
+export type QuotaRequestResponse = components['schemas']['QuotaRequestResponse'];
+export type SessionResponse = components['schemas']['SessionResponse'];
+export type CreateSessionRequest = components['schemas']['CreateSessionRequest'];
+export type CreateSessionResponse = components['schemas']['CreateSessionResponse'];
+
+/**
+ * Create a type-safe API client instance
+ */
+export function createApiClient(apiKey?: string) {
+  return createClient<paths>({
+    baseUrl: API_BASE_URL,
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+  });
 }
 
-export interface ExecutionResponse {
-  session_id: string;
-  stdout: string;
-  stderr: string;
-  exit_code: number;
-  execution_time: number;
+/**
+ * Create a new API key (public endpoint, no auth required)
+ */
+export async function createApiKey(email: string, name?: string): Promise<CreateKeyResponse> {
+  const client = createApiClient();
+  const { data, error } = await client.POST('/v1/keys', {
+    body: { email, name },
+  });
+
+  if (error) {
+    throw new Error(error.detail || 'Failed to create API key');
+  }
+
+  return data!;
 }
 
-export interface ApiKeyInfo {
-  api_key: string;
-  created_at: string;
-  quota: {
-    total: number;
-    used: number;
-    remaining: number;
-  };
+/**
+ * Submit a quota increase request (public endpoint)
+ */
+export async function submitQuotaRequest(request: QuotaRequestRequest): Promise<QuotaRequestResponse> {
+  const client = createApiClient();
+  const { data, error } = await client.POST('/v1/quota-requests', {
+    body: request,
+  });
+
+  if (error) {
+    throw new Error(error.detail || 'Failed to submit quota request');
+  }
+
+  return data!;
 }
 
+/**
+ * API client class for authenticated requests
+ */
 export class ApiClient {
-  private apiKey: string;
+  private client: ReturnType<typeof createApiClient>;
 
   constructor(apiKey: string) {
-    this.apiKey = apiKey;
+    this.client = createApiClient(apiKey);
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-        ...options.headers,
-      },
-    });
+  /**
+   * Get account information
+   */
+  async getAccount(): Promise<AccountResponse> {
+    const { data, error } = await this.client.GET('/v1/account');
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
+    if (error) {
+      throw new Error(error.detail || 'Failed to get account info');
     }
 
-    return response.json();
+    return data!;
   }
 
-  async execute(request: ExecutionRequest): Promise<ExecutionResponse> {
-    return this.request<ExecutionResponse>('/v1/execute', {
-      method: 'POST',
-      body: JSON.stringify(request),
+  /**
+   * Get usage statistics
+   */
+  async getUsage(): Promise<UsageResponse> {
+    const { data, error } = await this.client.GET('/v1/account/usage');
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to get usage stats');
+    }
+
+    return data!;
+  }
+
+  /**
+   * List all sessions
+   */
+  async listSessions(): Promise<SessionResponse[]> {
+    const { data, error } = await this.client.GET('/v1/sessions');
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to list sessions');
+    }
+
+    return data?.sessions || [];
+  }
+
+  /**
+   * Create a new session
+   */
+  async createSession(request: CreateSessionRequest): Promise<CreateSessionResponse> {
+    const { data, error } = await this.client.POST('/v1/sessions', {
+      body: request,
     });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to create session');
+    }
+
+    return data!;
   }
 
-  async getApiKeyInfo(): Promise<ApiKeyInfo> {
-    return this.request<ApiKeyInfo>('/v1/account/info');
+  /**
+   * Get a specific session
+   */
+  async getSession(id: string): Promise<SessionResponse> {
+    const { data, error } = await this.client.GET('/v1/sessions/{id}', {
+      params: { path: { id } },
+    });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to get session');
+    }
+
+    return data!;
   }
 
-  async getUsageStats(): Promise<{
-    sessions_today: number;
-    quota_used: number;
-    quota_total: number;
-  }> {
-    return this.request('/v1/account/usage');
+  /**
+   * Stop a session
+   */
+  async stopSession(id: string): Promise<void> {
+    const { error } = await this.client.POST('/v1/sessions/{id}/stop', {
+      params: { path: { id } },
+    });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to stop session');
+    }
+  }
+
+  /**
+   * Kill a session
+   */
+  async killSession(id: string): Promise<void> {
+    const { error } = await this.client.DELETE('/v1/sessions/{id}', {
+      params: { path: { id } },
+    });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to kill session');
+    }
   }
 }
-
-// Stub functions for when no API key is available
-export const stubApiClient = {
-  getApiKeyInfo: async (): Promise<ApiKeyInfo> => {
-    return {
-      api_key: 'sk_test_1234567890abcdef',
-      created_at: new Date().toISOString(),
-      quota: {
-        total: 5000,
-        used: 4000,
-        remaining: 1000,
-      },
-    };
-  },
-
-  getUsageStats: async () => {
-    return {
-      sessions_today: 42,
-      quota_used: 4000,
-      quota_total: 5000,
-    };
-  },
-
-  execute: async (request: ExecutionRequest): Promise<ExecutionResponse> => {
-    console.log('Stub execution request:', request);
-    return {
-      session_id: `stub_${Date.now()}`,
-      stdout: 'Hello, World!\n',
-      stderr: '',
-      exit_code: 0,
-      execution_time: 0.123,
-    };
-  },
-};

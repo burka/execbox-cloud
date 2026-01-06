@@ -10,7 +10,9 @@ import (
 // DBClient defines the database operations required by the API handlers
 type DBClient interface {
 	GetAPIKeyByKey(ctx context.Context, key string) (*db.APIKey, error)
+	GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*db.APIKey, error)
 	UpdateAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error
+	CreateAPIKey(ctx context.Context, email string, name *string) (*db.APIKey, error)
 	GetSession(ctx context.Context, id string) (*db.Session, error)
 	CreateSession(ctx context.Context, sess *db.Session) error
 	UpdateSession(ctx context.Context, id string, update *db.SessionUpdate) error

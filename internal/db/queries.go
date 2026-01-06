@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -37,6 +39,74 @@ func (c *Client) GetAPIKeyByKey(ctx context.Context, key string) (*APIKey, error
 			return nil, fmt.Errorf("API key not found")
 		}
 		return nil, fmt.Errorf("failed to get API key: %w", err)
+	}
+
+	return &apiKey, nil
+}
+
+// GetAPIKeyByID retrieves an API key by its ID.
+// Returns an error if the key is not found or if the query fails.
+func (c *Client) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*APIKey, error) {
+	query := `
+		SELECT id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
+		FROM api_keys
+		WHERE id = $1
+	`
+
+	var apiKey APIKey
+	err := c.pool.QueryRow(ctx, query, id).Scan(
+		&apiKey.ID,
+		&apiKey.Key,
+		&apiKey.Email,
+		&apiKey.Tier,
+		&apiKey.TierExpiresAt,
+		&apiKey.TierUpdatedAt,
+		&apiKey.RateLimitRPS,
+		&apiKey.CreatedAt,
+		&apiKey.LastUsedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("API key not found")
+		}
+		return nil, fmt.Errorf("failed to get API key: %w", err)
+	}
+
+	return &apiKey, nil
+}
+
+// CreateAPIKey creates a new API key for the given email with free tier.
+// Returns the created API key with a newly generated key string.
+func (c *Client) CreateAPIKey(ctx context.Context, email string, name *string) (*APIKey, error) {
+	// Generate a secure random API key
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
+	key := fmt.Sprintf("sk_%s", hex.EncodeToString(keyBytes))
+
+	query := `
+		INSERT INTO api_keys (id, key, email, tier, rate_limit_rps, created_at)
+		VALUES ($1, $2, $3, 'free', 10, NOW())
+		RETURNING id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
+	`
+
+	var apiKey APIKey
+	err := c.pool.QueryRow(ctx, query, uuid.New(), key, email).Scan(
+		&apiKey.ID,
+		&apiKey.Key,
+		&apiKey.Email,
+		&apiKey.Tier,
+		&apiKey.TierExpiresAt,
+		&apiKey.TierUpdatedAt,
+		&apiKey.RateLimitRPS,
+		&apiKey.CreatedAt,
+		&apiKey.LastUsedAt,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API key: %w", err)
 	}
 
 	return &apiKey, nil

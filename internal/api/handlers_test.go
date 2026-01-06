@@ -157,6 +157,29 @@ func (m *mockHandlerDB) CreateQuotaRequest(ctx context.Context, req *db.QuotaReq
 	return req, nil
 }
 
+func (m *mockHandlerDB) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*db.APIKey, error) {
+	for _, apiKey := range m.apiKeysByString {
+		if apiKey.ID == id {
+			return apiKey, nil
+		}
+	}
+	return nil, fmt.Errorf("API key not found")
+}
+
+func (m *mockHandlerDB) CreateAPIKey(ctx context.Context, email string, name *string) (*db.APIKey, error) {
+	key := fmt.Sprintf("sk_test_%s", randHex(32))
+	apiKey := &db.APIKey{
+		ID:           uuid.New(),
+		Key:          key,
+		Email:        &email,
+		Tier:         "free",
+		RateLimitRPS: 10,
+		CreatedAt:    time.Now().UTC(),
+	}
+	m.apiKeysByString[key] = apiKey
+	return apiKey, nil
+}
+
 // mockHandlerFly is a mock implementation of the Fly client for handler tests
 type mockHandlerFly struct {
 	createMachineErr  error
@@ -352,5 +375,163 @@ func TestGetSession_Success(t *testing.T) {
 
 	if response.ID != "sess_test_123" {
 		t.Errorf("Expected session ID 'sess_test_123', got '%s'", response.ID)
+	}
+}
+
+func TestGetAccount_Success(t *testing.T) {
+	mockDB := newMockHandlerDB()
+	mockFly := newMockHandlerFly()
+	handlers := NewHandlers(mockDB, mockFly)
+
+	apiKeyID := uuid.New()
+	email := "test@example.com"
+	createdAt := time.Now().UTC()
+
+	// Create test API key
+	testKey := &db.APIKey{
+		ID:           apiKeyID,
+		Key:          "sk_test_12345678901234567890123456789012",
+		Email:        &email,
+		Tier:         "free",
+		RateLimitRPS: 10,
+		CreatedAt:    createdAt,
+	}
+	mockDB.apiKeysByString[testKey.Key] = testKey
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/account", nil)
+	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
+
+	w := httptest.NewRecorder()
+	handlers.GetAccount(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var response AccountResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	}
+	if response.Email == nil || *response.Email != email {
+		t.Errorf("Expected email '%s', got '%v'", email, response.Email)
+	}
+	if response.APIKeyID != apiKeyID.String() {
+		t.Errorf("Expected API key ID '%s', got '%s'", apiKeyID.String(), response.APIKeyID)
+	}
+	if response.APIKeyPreview != "sk_test...9012" {
+		t.Errorf("Expected masked key 'sk_test...9012', got '%s'", response.APIKeyPreview)
+	}
+}
+
+func TestGetUsage_Success(t *testing.T) {
+	mockDB := newMockHandlerDB()
+	mockFly := newMockHandlerFly()
+	handlers := NewHandlers(mockDB, mockFly)
+
+	apiKeyID := uuid.New()
+
+	// Create some test sessions
+	for i := 0; i < 3; i++ {
+		sessionID := fmt.Sprintf("sess_test_%d", i)
+		mockDB.sessions[sessionID] = &db.Session{
+			ID:        sessionID,
+			APIKeyID:  apiKeyID,
+			Status:    "running",
+			CreatedAt: time.Now().UTC(),
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/account/usage", nil)
+	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
+	req = req.WithContext(WithAPIKeyTier(req.Context(), "free"))
+
+	w := httptest.NewRecorder()
+	handlers.GetUsage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var response UsageResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.SessionsToday != 3 {
+		t.Errorf("Expected 3 sessions today, got %d", response.SessionsToday)
+	}
+	if response.ActiveSessions != 3 {
+		t.Errorf("Expected 3 active sessions, got %d", response.ActiveSessions)
+	}
+	if response.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	}
+	if response.DailyLimit != 10 {
+		t.Errorf("Expected daily limit 10, got %d", response.DailyLimit)
+	}
+	if response.QuotaRemaining != 7 {
+		t.Errorf("Expected quota remaining 7, got %d", response.QuotaRemaining)
+	}
+}
+
+func TestCreateAPIKey_Success(t *testing.T) {
+	mockDB := newMockHandlerDB()
+	mockFly := newMockHandlerFly()
+	handlers := NewHandlers(mockDB, mockFly)
+
+	request := CreateKeyRequest{
+		Email: "test@example.com",
+	}
+
+	body, _ := json.Marshal(request)
+	req := httptest.NewRequest(http.MethodPost, "/v1/keys", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handlers.CreateAPIKey(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+	}
+
+	var response CreateKeyResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.ID == "" {
+		t.Error("Expected API key ID in response")
+	}
+	if response.Key == "" {
+		t.Error("Expected API key in response")
+	}
+	if response.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	}
+	if response.Message == "" {
+		t.Error("Expected message in response")
+	}
+}
+
+func TestCreateAPIKey_MissingEmail(t *testing.T) {
+	mockDB := newMockHandlerDB()
+	mockFly := newMockHandlerFly()
+	handlers := NewHandlers(mockDB, mockFly)
+
+	request := CreateKeyRequest{
+		Email: "",
+	}
+
+	body, _ := json.Marshal(request)
+	req := httptest.NewRequest(http.MethodPost, "/v1/keys", bytes.NewReader(body))
+
+	w := httptest.NewRecorder()
+	handlers.CreateAPIKey(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
 	}
 }

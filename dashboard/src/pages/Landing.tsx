@@ -1,7 +1,74 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { createApiKey } from '@/lib/api';
+import { setStoredApiKey, getStoredApiKey } from '@/lib/auth';
 
 export function Landing() {
+  const [showModal, setShowModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [email, setEmail] = useState('');
+  const [existingKey, setExistingKey] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+  const navigate = useNavigate();
+
+  // Check if already logged in
+  const isLoggedIn = !!getStoredApiKey();
+
+  const handleCreateKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const response = await createApiKey(email);
+      setStoredApiKey(response.key);
+
+      toast({
+        title: 'Success!',
+        description: 'Your API key has been created. Redirecting to dashboard...',
+      });
+
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1000);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to create API key',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      // Store the key and validate by navigating to dashboard
+      // The dashboard will validate the key
+      setStoredApiKey(existingKey);
+
+      toast({
+        title: 'Logged in!',
+        description: 'Redirecting to dashboard...',
+      });
+
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 500);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20">
       <div className="container max-w-4xl px-4 text-center space-y-8">
@@ -13,12 +80,21 @@ export function Landing() {
           Secure sandboxed code execution as a service
         </p>
 
-        <div className="flex justify-center pt-4">
-          <Link to="/dashboard">
-            <Button size="lg" className="text-lg px-8 py-6">
-              Get API Key
+        <div className="flex justify-center gap-4 pt-4">
+          {isLoggedIn ? (
+            <Button size="lg" className="text-lg px-8 py-6" onClick={() => navigate('/dashboard')}>
+              Go to Dashboard
             </Button>
-          </Link>
+          ) : (
+            <>
+              <Button size="lg" className="text-lg px-8 py-6" onClick={() => setShowModal(true)}>
+                Get API Key
+              </Button>
+              <Button size="lg" variant="outline" className="text-lg px-8 py-6" onClick={() => setShowLoginModal(true)}>
+                Login
+              </Button>
+            </>
+          )}
         </div>
 
         <div className="pt-12 max-w-3xl mx-auto">
@@ -63,6 +139,90 @@ export function Landing() {
           </div>
         </div>
       </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
+          <Card className="w-full max-w-md m-4" onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>Get Your API Key</CardTitle>
+              <CardDescription>
+                Enter your email to create your API key
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCreateKey} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" className="flex-1" disabled={isLoading}>
+                    {isLoading ? 'Creating...' : 'Create API Key'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowModal(false)}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowLoginModal(false)}>
+          <Card className="w-full max-w-md m-4" onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>Login with API Key</CardTitle>
+              <CardDescription>
+                Enter your existing API key to access the dashboard
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="apiKey">API Key</Label>
+                  <Input
+                    id="apiKey"
+                    type="password"
+                    required
+                    value={existingKey}
+                    onChange={(e) => setExistingKey(e.target.value)}
+                    placeholder="sk_live_..."
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" className="flex-1" disabled={isLoading}>
+                    {isLoading ? 'Logging in...' : 'Login'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowLoginModal(false)}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

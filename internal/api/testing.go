@@ -164,3 +164,34 @@ func (m *mockDB) CreateQuotaRequest(ctx context.Context, req *db.QuotaRequest) (
 	req.CreatedAt = time.Now().UTC()
 	return req, nil
 }
+
+func (m *mockDB) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*db.APIKey, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, apiKey := range m.apiKeys {
+		if apiKey.ID == id {
+			// Return a copy to avoid race conditions
+			keyCopy := *apiKey
+			return &keyCopy, nil
+		}
+	}
+	return nil, fmt.Errorf("API key not found")
+}
+
+func (m *mockDB) CreateAPIKey(ctx context.Context, email string, name *string) (*db.APIKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("sk_test_%s", randHex(32))
+	apiKey := &db.APIKey{
+		ID:           uuid.New(),
+		Key:          key,
+		Email:        &email,
+		Tier:         "free",
+		RateLimitRPS: 10,
+		CreatedAt:    time.Now().UTC(),
+	}
+	m.apiKeys[key] = apiKey
+	return apiKey, nil
+}

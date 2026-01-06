@@ -152,6 +152,44 @@ func RegisterHumaRoutes(humaAPI huma.API) {
 	}, func(ctx context.Context, input *CreateQuotaRequestInput) (*CreateQuotaRequestOutput, error) {
 		return nil, nil
 	})
+
+	// Account operations
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "getAccount",
+		Method:      "GET",
+		Path:        "/v1/account",
+		Summary:     "Get account information",
+		Description: "Returns account information including tier, email, and API key details.",
+		Tags:        []string{"Account"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+	}, func(ctx context.Context, input *GetAccountInput) (*GetAccountOutput, error) {
+		return nil, nil
+	})
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "getUsage",
+		Method:      "GET",
+		Path:        "/v1/account/usage",
+		Summary:     "Get usage statistics",
+		Description: "Returns usage statistics including sessions today, quota remaining, and limits.",
+		Tags:        []string{"Account"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+	}, func(ctx context.Context, input *GetUsageInput) (*GetUsageOutput, error) {
+		return nil, nil
+	})
+
+	// API Key operations
+	huma.Register(humaAPI, huma.Operation{
+		OperationID:   "createAPIKey",
+		Method:        "POST",
+		Path:          "/v1/keys",
+		Summary:       "Create a new API key",
+		Description:   "Create a new API key for accessing the API. Does not require authentication.",
+		Tags:          []string{"API Keys"},
+		DefaultStatus: 201,
+	}, func(ctx context.Context, input *CreateAPIKeyInput) (*CreateAPIKeyOutput, error) {
+		return nil, nil
+	})
 }
 
 // GenerateOpenAPISpec generates the OpenAPI specification without creating a full server.

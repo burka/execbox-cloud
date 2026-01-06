@@ -110,11 +110,21 @@ func (s *Server) registerRoutes() {
 			r.Post("/quota-requests", s.handlers.CreateQuotaRequest)
 		})
 
+		// Public API endpoints (no auth required, IP rate limited)
+		r.Group(func(r chi.Router) {
+			r.Use(s.rateLimiter.IPMiddleware())
+			r.Post("/keys", s.handlers.CreateAPIKey)
+		})
+
 		// Authenticated endpoints
 		r.Group(func(r chi.Router) {
 			// Apply auth middleware first, then rate limiting
 			r.Use(AuthMiddleware(s.db))
 			r.Use(s.rateLimiter.Middleware())
+
+			// Account management
+			r.Get("/account", s.handlers.GetAccount)
+			r.Get("/account/usage", s.handlers.GetUsage)
 
 			// Session management
 			r.Post("/sessions", s.handlers.CreateSession)
