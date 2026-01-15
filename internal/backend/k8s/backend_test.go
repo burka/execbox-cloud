@@ -1,3 +1,4 @@
+//nolint:staticcheck // fake.NewSimpleClientset is deprecated but fake.NewClientset requires generated apply configs
 package k8s
 
 import (
@@ -261,7 +262,7 @@ func TestStreamBuffer(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for j := 0; j < writesPerGoroutine; j++ {
-					buf.Write([]byte("x"))
+					_, _ = buf.Write([]byte("x"))
 				}
 			}(i)
 		}

@@ -1,3 +1,4 @@
+//nolint:staticcheck // fake.NewSimpleClientset is deprecated but fake.NewClientset requires generated apply configs
 package k8s
 
 import (
