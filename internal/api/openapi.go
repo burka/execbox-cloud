@@ -25,7 +25,7 @@ func handleOpenAPIJSON(api huma.API) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(spec)
+		_, _ = w.Write(spec)
 	}
 }
 
@@ -44,7 +44,7 @@ func handleOpenAPIYAML(api huma.API) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/x-yaml")
 		w.WriteHeader(http.StatusOK)
-		w.Write(yamlBytes)
+		_, _ = w.Write(yamlBytes)
 	}
 }
 

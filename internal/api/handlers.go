@@ -236,7 +236,7 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		response.Network = buildNetworkInfo(req.Network, ports, machine)
 	}
 
-	WriteJSON(w, response, http.StatusCreated)
+	_ = WriteJSON(w, response, http.StatusCreated)
 }
 
 // GetSession handles GET /v1/sessions/{id}
@@ -248,7 +248,7 @@ func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := buildSessionResponse(session)
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // ListSessions handles GET /v1/sessions
@@ -285,7 +285,7 @@ func (h *Handlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 		response.Sessions = append(response.Sessions, buildSessionResponse(&session))
 	}
 
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // StopSession handles POST /v1/sessions/{id}/stop
@@ -330,7 +330,7 @@ func (h *Handlers) StopSession(w http.ResponseWriter, r *http.Request) {
 		Status: SessionStatusStopped,
 	}
 
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // KillSession handles DELETE /v1/sessions/{id}
@@ -369,7 +369,7 @@ func (h *Handlers) KillSession(w http.ResponseWriter, r *http.Request) {
 		Status: SessionStatusKilled,
 	}
 
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // generateSessionID creates a random session ID with the format "sess_<random>"
@@ -538,7 +538,7 @@ func (h *Handlers) CreateQuotaRequest(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: created.CreatedAt.Format(time.RFC3339),
 	}
 
-	WriteJSON(w, response, http.StatusCreated)
+	_ = WriteJSON(w, response, http.StatusCreated)
 }
 
 // GetAccount handles GET /v1/account
@@ -574,7 +574,7 @@ func (h *Handlers) GetAccount(w http.ResponseWriter, r *http.Request) {
 		response.TierExpiresAt = &expiresAt
 	}
 
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // GetUsage handles GET /v1/account/usage
@@ -631,7 +631,7 @@ func (h *Handlers) GetUsage(w http.ResponseWriter, r *http.Request) {
 		MaxMemoryMB:        limits.MemoryMB,
 	}
 
-	WriteJSON(w, response, http.StatusOK)
+	_ = WriteJSON(w, response, http.StatusOK)
 }
 
 // CreateAPIKey handles POST /v1/keys
@@ -667,7 +667,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		Message: "API key created successfully. Save this key - it will only be shown once.",
 	}
 
-	WriteJSON(w, response, http.StatusCreated)
+	_ = WriteJSON(w, response, http.StatusCreated)
 }
 
 // maskAPIKey masks an API key to show only the first 7 and last 4 characters.

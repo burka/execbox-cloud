@@ -152,9 +152,7 @@ func (h *Handlers) handleBinaryWSInput(ctx context.Context, conn *websocket.Conn
 		// Read binary message from WebSocket
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				// Log unexpected close if needed
-			}
+			// WebSocket closed normally or unexpectedly - either way, stop processing input
 			return
 		}
 
@@ -221,7 +219,7 @@ func (h *Handlers) sendBinaryError(writer *wsWriter, message string) {
 		Type:  proto.MessageTypeError,
 		Error: message,
 	}
-	h.writeBinaryMessage(writer, msg)
+	_ = h.writeBinaryMessage(writer, msg)
 }
 
 // sendBinaryExit sends a binary exit message over WebSocket
@@ -230,7 +228,7 @@ func (h *Handlers) sendBinaryExit(writer *wsWriter, exitCode int) {
 		Type:     proto.MessageTypeExit,
 		ExitCode: exitCode,
 	}
-	h.writeBinaryMessage(writer, msg)
+	_ = h.writeBinaryMessage(writer, msg)
 }
 
 // writeBinaryMessage writes a binary message to WebSocket

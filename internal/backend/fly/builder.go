@@ -165,7 +165,8 @@ func (b *Builder) Resolve(ctx context.Context, spec *BuildSpec, cache BuildCache
 	if cache != nil {
 		if err := cache.Put(ctx, hash, spec.BaseImage, registryTag); err != nil {
 			// Log but don't fail - image is built, just not cached
-			// TODO: Add proper logging
+			// Silently continue since the image build succeeded
+			_ = err
 		}
 	}
 

@@ -40,7 +40,7 @@ func TestWSWriter_ThreadSafety(t *testing.T) {
 					Data: []byte{byte(n)},
 				}
 				data, _ := bp.Encode(msg)
-				writer.WriteMessage(websocket.BinaryMessage, data)
+				_ = writer.WriteMessage(websocket.BinaryMessage, data)
 			}(i)
 		}
 
@@ -58,7 +58,7 @@ func TestWSWriter_ThreadSafety(t *testing.T) {
 
 	// Read messages
 	messagesReceived := 0
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 	for i := 0; i < 10; i++ {
 		_, _, err := conn.ReadMessage()
@@ -214,11 +214,6 @@ func TestHandlersStructure(t *testing.T) {
 		fly: nil,
 	}
 
-	// Verify structure
-	if h == nil {
-		t.Fatal("handlers is nil")
-	}
-
 	// Verify we can call getMachineIOStreams (even though it returns placeholders)
 	stdin, stdout, stderr := h.getMachineIOStreams(&db.Session{})
 	if stdin == nil || stdout == nil || stderr == nil {
@@ -244,7 +239,7 @@ func BenchmarkWSWriter_Concurrent(b *testing.B) {
 				Data: []byte{byte(i % 256)},
 			}
 			data, _ := bp.Encode(msg)
-			writer.WriteMessage(websocket.BinaryMessage, data)
+			_ = writer.WriteMessage(websocket.BinaryMessage, data)
 		}
 	}))
 	defer server.Close()
