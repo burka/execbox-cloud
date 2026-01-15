@@ -184,12 +184,12 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 	return handle, nil
 }
 
-// waitForPodRunning waits for a pod to reach Running state.
+// waitForPodRunning waits for a pod to reach Running state with container ready.
 func (b *Backend) waitForPodRunning(ctx context.Context, podName string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -204,7 +204,14 @@ func (b *Backend) waitForPodRunning(ctx context.Context, podName string, timeout
 
 			switch pod.Status.Phase {
 			case corev1.PodRunning:
-				return nil
+				// Also check that the main container is actually running
+				if len(pod.Status.ContainerStatuses) > 0 {
+					cs := pod.Status.ContainerStatuses[0]
+					if cs.State.Running != nil && cs.Ready {
+						return nil
+					}
+				}
+				// Pod is running but container not ready yet, continue waiting
 			case corev1.PodFailed, corev1.PodSucceeded:
 				return fmt.Errorf("pod entered terminal state: %s", pod.Status.Phase)
 			}
@@ -546,8 +553,11 @@ func (b *Backend) Exec(ctx context.Context, sessionID string, cmd []string) (std
 	// Create buffers for output
 	var stdoutBuf, stderrBuf streamBuffer
 
-	// Execute
-	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+	// Use a background context for the stream to prevent premature closure
+	// when the caller's context is cancelled. The command should complete
+	// naturally and return its exit code.
+	// If we need timeout behavior, we can implement it separately by monitoring ctx.
+	err = executor.StreamWithContext(context.Background(), remotecommand.StreamOptions{
 		Stdout: &stdoutBuf,
 		Stderr: &stderrBuf,
 	})
@@ -555,11 +565,18 @@ func (b *Backend) Exec(ctx context.Context, sessionID string, cmd []string) (std
 	// Determine exit code
 	exitCode = 0
 	if err != nil {
-		// Try to extract exit code from error
-		if exitErr, ok := err.(ExitCoder); ok {
+		// Try to extract exit code from error using Kubernetes exec.CodeExitError
+		var codeExitErr interface{ ExitStatus() int }
+		if errWithCode, ok := err.(interface{ ExitStatus() int }); ok {
+			exitCode = errWithCode.ExitStatus()
+			err = nil // Non-zero exit is not an error
+		} else if exitErr, ok := err.(ExitCoder); ok {
 			exitCode = exitErr.ExitCode()
+			err = nil // Non-zero exit is not an error
 		} else {
-			exitCode = -1
+			// Actual error, not just non-zero exit
+			_ = codeExitErr // avoid unused warning
+			return stdoutBuf.String(), stderrBuf.String(), -1, fmt.Errorf("exec stream failed: %w", err)
 		}
 	}
 

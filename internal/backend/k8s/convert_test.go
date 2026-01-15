@@ -10,6 +10,59 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestSanitizePathForConfigMapKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple path with leading slash",
+			input:    "/app/config.txt",
+			expected: "app-config.txt",
+		},
+		{
+			name:     "path without leading slash",
+			input:    "app/config.txt",
+			expected: "app-config.txt",
+		},
+		{
+			name:     "deeply nested path",
+			input:    "/var/lib/app/config/database.yml",
+			expected: "var-lib-app-config-database.yml",
+		},
+		{
+			name:     "root level file",
+			input:    "/config.txt",
+			expected: "config.txt",
+		},
+		{
+			name:     "file without directory",
+			input:    "config.txt",
+			expected: "config.txt",
+		},
+		{
+			name:     "path with multiple slashes",
+			input:    "/app//config.txt",
+			expected: "app--config.txt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizePathForConfigMapKey(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizePathForConfigMapKey(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+
+			// Verify the result doesn't contain "/"
+			if strings.Contains(result, "/") {
+				t.Errorf("sanitized key %q still contains slash", result)
+			}
+		})
+	}
+}
+
 func TestEnvMapToEnvVars(t *testing.T) {
 	env := map[string]string{
 		"KEY1": "value1",
@@ -376,16 +429,16 @@ func TestBuildFilesToConfigMap(t *testing.T) {
 		t.Errorf("namespace = %q, want %q", cm.Namespace, namespace)
 	}
 
-	// Check text file in Data
-	if text, ok := cm.Data["app/config.txt"]; !ok {
-		t.Error("expected app/config.txt in Data")
+	// Check text file in Data (path "/" replaced with "-")
+	if text, ok := cm.Data["app-config.txt"]; !ok {
+		t.Error("expected app-config.txt in Data")
 	} else if text != "text content" {
 		t.Errorf("text content = %q, want %q", text, "text content")
 	}
 
-	// Check binary file in BinaryData
-	if binary, ok := cm.BinaryData["app/binary"]; !ok {
-		t.Error("expected app/binary in BinaryData")
+	// Check binary file in BinaryData (path "/" replaced with "-")
+	if binary, ok := cm.BinaryData["app-binary"]; !ok {
+		t.Error("expected app-binary in BinaryData")
 	} else if len(binary) != 3 || binary[0] != 0x00 {
 		t.Errorf("binary content = %v, want [0 1 2]", binary)
 	}
@@ -1182,4 +1235,146 @@ func TestBuildNetworkInfo(t *testing.T) {
 // Helper function to create int pointer
 func intPtr(i int) *int {
 	return &i
+}
+
+func TestSpecToPodWithSetup(t *testing.T) {
+	spec := execbox.Spec{
+		Image:   "alpine:latest",
+		Command: []string{"sh", "-c", "cat /tmp/setup-result.txt"},
+		Setup: []string{
+			"echo 'setup step 1' > /tmp/setup-result.txt",
+			"echo 'setup step 2' >> /tmp/setup-result.txt",
+		},
+		Env: map[string]string{
+			"TEST": "value",
+		},
+		WorkDir: "/workspace",
+	}
+
+	sessionID := "test-session-12345678"
+	namespace := "default"
+	labels := map[string]string{}
+
+	pod := SpecToPod(spec, sessionID, namespace, labels)
+
+	// Check that init containers were created
+	if len(pod.Spec.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(pod.Spec.InitContainers))
+	}
+
+	// Check first init container
+	initContainer0 := pod.Spec.InitContainers[0]
+	if initContainer0.Name != "setup-0" {
+		t.Errorf("init container 0 name = %q, want %q", initContainer0.Name, "setup-0")
+	}
+	if initContainer0.Image != spec.Image {
+		t.Errorf("init container 0 image = %q, want %q", initContainer0.Image, spec.Image)
+	}
+	if initContainer0.WorkingDir != spec.WorkDir {
+		t.Errorf("init container 0 workdir = %q, want %q", initContainer0.WorkingDir, spec.WorkDir)
+	}
+	expectedCmd0 := []string{"/bin/sh", "-c", "echo 'setup step 1' > /tmp/setup-result.txt"}
+	if len(initContainer0.Command) != len(expectedCmd0) {
+		t.Fatalf("init container 0 command length = %d, want %d", len(initContainer0.Command), len(expectedCmd0))
+	}
+	for i, cmd := range expectedCmd0 {
+		if initContainer0.Command[i] != cmd {
+			t.Errorf("init container 0 command[%d] = %q, want %q", i, initContainer0.Command[i], cmd)
+		}
+	}
+
+	// Check that init container has workspace volume mounted
+	if len(initContainer0.VolumeMounts) != 1 {
+		t.Fatalf("expected 1 volume mount in init container 0, got %d", len(initContainer0.VolumeMounts))
+	}
+	if initContainer0.VolumeMounts[0].Name != "init-workspace" {
+		t.Errorf("init container 0 volume mount name = %q, want %q", initContainer0.VolumeMounts[0].Name, "init-workspace")
+	}
+	if initContainer0.VolumeMounts[0].MountPath != "/tmp" {
+		t.Errorf("init container 0 volume mount path = %q, want %q", initContainer0.VolumeMounts[0].MountPath, "/tmp")
+	}
+
+	// Check second init container
+	initContainer1 := pod.Spec.InitContainers[1]
+	if initContainer1.Name != "setup-1" {
+		t.Errorf("init container 1 name = %q, want %q", initContainer1.Name, "setup-1")
+	}
+	expectedCmd1 := []string{"/bin/sh", "-c", "echo 'setup step 2' >> /tmp/setup-result.txt"}
+	if len(initContainer1.Command) != len(expectedCmd1) {
+		t.Fatalf("init container 1 command length = %d, want %d", len(initContainer1.Command), len(expectedCmd1))
+	}
+	for i, cmd := range expectedCmd1 {
+		if initContainer1.Command[i] != cmd {
+			t.Errorf("init container 1 command[%d] = %q, want %q", i, initContainer1.Command[i], cmd)
+		}
+	}
+
+	// Check that main container has workspace volume mounted
+	mainContainer := pod.Spec.Containers[0]
+	hasWorkspaceMount := false
+	for _, vm := range mainContainer.VolumeMounts {
+		if vm.Name == "init-workspace" && vm.MountPath == "/tmp" {
+			hasWorkspaceMount = true
+			break
+		}
+	}
+	if !hasWorkspaceMount {
+		t.Error("main container missing init-workspace volume mount at /tmp")
+	}
+
+	// Check that workspace volume exists in pod spec
+	hasWorkspaceVolume := false
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == "init-workspace" {
+			hasWorkspaceVolume = true
+			if vol.VolumeSource.EmptyDir == nil {
+				t.Error("workspace volume should be an emptyDir")
+			}
+			break
+		}
+	}
+	if !hasWorkspaceVolume {
+		t.Error("pod spec missing init-workspace volume")
+	}
+
+	// Check that env vars are passed to init containers
+	if len(initContainer0.Env) != 1 {
+		t.Fatalf("expected 1 env var in init container 0, got %d", len(initContainer0.Env))
+	}
+	if initContainer0.Env[0].Name != "TEST" || initContainer0.Env[0].Value != "value" {
+		t.Errorf("init container 0 env var = %+v, want TEST=value", initContainer0.Env[0])
+	}
+}
+
+func TestSpecToPodWithoutSetup(t *testing.T) {
+	spec := execbox.Spec{
+		Image:   "alpine:latest",
+		Command: []string{"echo", "hello"},
+	}
+
+	sessionID := "test-session-12345678"
+	namespace := "default"
+	labels := map[string]string{}
+
+	pod := SpecToPod(spec, sessionID, namespace, labels)
+
+	// Check that no init containers were created
+	if len(pod.Spec.InitContainers) != 0 {
+		t.Errorf("expected 0 init containers, got %d", len(pod.Spec.InitContainers))
+	}
+
+	// Check that no workspace volume was added
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == "init-workspace" {
+			t.Error("workspace volume should not exist when there are no setup commands")
+		}
+	}
+
+	// Check that main container has no workspace mount
+	mainContainer := pod.Spec.Containers[0]
+	for _, vm := range mainContainer.VolumeMounts {
+		if vm.Name == "init-workspace" {
+			t.Error("main container should not have workspace volume mount when there are no setup commands")
+		}
+	}
 }

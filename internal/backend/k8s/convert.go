@@ -83,7 +83,7 @@ func SpecToPod(spec execbox.Spec, sessionID, namespace string, labels map[string
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				Name:      "build-files",
 				MountPath: bf.Path,
-				SubPath:   strings.TrimPrefix(bf.Path, "/"),
+				SubPath:   sanitizePathForConfigMapKey(bf.Path),
 			})
 		}
 	}
@@ -96,6 +96,43 @@ func SpecToPod(spec execbox.Spec, sessionID, namespace string, labels map[string
 		volumeMounts = append(volumeMounts, mounts...)
 	}
 
+	// Add shared workspace volume for init containers and main container
+	// This allows setup commands to persist files that the main container can access
+	var initContainers []corev1.Container
+	if len(spec.Setup) > 0 {
+		// Add emptyDir volume for shared workspace
+		volumes = append(volumes, corev1.Volume{
+			Name: "init-workspace",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+
+		// Mount workspace in main container
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "init-workspace",
+			MountPath: "/tmp",
+		})
+
+		// Create init containers for each setup command
+		for i, setupCmd := range spec.Setup {
+			initContainer := corev1.Container{
+				Name:       fmt.Sprintf("setup-%d", i),
+				Image:      spec.Image,
+				WorkingDir: spec.WorkDir,
+				Env:        EnvMapToEnvVars(spec.Env),
+				Command:    []string{"/bin/sh", "-c", setupCmd},
+				VolumeMounts: []corev1.VolumeMount{
+					{
+						Name:      "init-workspace",
+						MountPath: "/tmp",
+					},
+				},
+			}
+			initContainers = append(initContainers, initContainer)
+		}
+	}
+
 	container.VolumeMounts = volumeMounts
 
 	pod := &corev1.Pod{
@@ -106,9 +143,10 @@ func SpecToPod(spec execbox.Spec, sessionID, namespace string, labels map[string
 			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
-			Containers:    []corev1.Container{container},
-			Volumes:       volumes,
+			RestartPolicy:  corev1.RestartPolicyNever,
+			InitContainers: initContainers,
+			Containers:     []corev1.Container{container},
+			Volumes:        volumes,
 		},
 	}
 
@@ -418,13 +456,22 @@ func BuildNetworkInfo(pod *corev1.Pod) *execbox.NetworkInfo {
 	return info
 }
 
+// sanitizePathForConfigMapKey converts a file path to a valid ConfigMap key.
+// ConfigMap keys cannot contain "/" so we replace them with "-".
+func sanitizePathForConfigMapKey(path string) string {
+	// Remove leading slash and replace remaining slashes with dashes
+	key := strings.TrimPrefix(path, "/")
+	key = strings.ReplaceAll(key, "/", "-")
+	return key
+}
+
 // BuildFilesToConfigMap converts BuildFiles to a Kubernetes ConfigMap.
 func BuildFilesToConfigMap(files []execbox.BuildFile, sessionID, namespace string) *corev1.ConfigMap {
 	data := make(map[string]string)
 	binaryData := make(map[string][]byte)
 
 	for _, f := range files {
-		key := strings.TrimPrefix(f.Path, "/")
+		key := sanitizePathForConfigMapKey(f.Path)
 
 		// Check if content is binary (contains null bytes)
 		isBinary := false
