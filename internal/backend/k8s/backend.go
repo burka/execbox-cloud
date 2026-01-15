@@ -151,8 +151,9 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 		return nil, fmt.Errorf("failed to create pod: %w", err)
 	}
 
-	// Wait for pod to be running
-	if err := b.waitForPodRunning(ctx, createdPod.Name, 60*time.Second); err != nil {
+	// Wait for pod to be ready (running or completed)
+	state, exitCode, err := b.waitForPodReady(ctx, createdPod.Name, 60*time.Second)
+	if err != nil {
 		// Cleanup on failure
 		_ = b.destroyResources(ctx, sessionID)
 		return nil, fmt.Errorf("pod failed to start: %w", err)
@@ -161,17 +162,28 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 	// Create handle
 	handle := NewHandle(sessionID, createdPod.Name, b.config.Namespace, spec, b.clientset, b.restConfig)
 
-	// Attach to pod streams
 	containerName := "main" // Default container name from SpecToPod
-	stdin, stdout, stderr, err := b.attachToPod(ctx, createdPod.Name, containerName, spec.TTY)
-	if err != nil {
-		_ = b.destroyResources(ctx, sessionID)
-		return nil, fmt.Errorf("failed to attach to pod: %w", err)
-	}
 
-	// Wire streams to handle
-	handle.SetStdin(stdin)
-	handle.SetAttachStreams(stdout, stderr)
+	switch state {
+	case podStateRunning:
+		// Pod is running - attach to streams
+		stdin, stdout, stderr, err := b.attachToPod(ctx, createdPod.Name, containerName, spec.TTY)
+		if err != nil {
+			_ = b.destroyResources(ctx, sessionID)
+			return nil, fmt.Errorf("failed to attach to pod: %w", err)
+		}
+		handle.SetStdin(stdin)
+		handle.SetAttachStreams(stdout, stderr)
+
+	case podStateSucceeded, podStateFailed:
+		// Pod already completed - read logs instead of attaching
+		stdout, stderr, err := b.readPodLogs(ctx, createdPod.Name, containerName)
+		if err != nil {
+			_ = b.destroyResources(ctx, sessionID)
+			return nil, fmt.Errorf("failed to read pod logs: %w", err)
+		}
+		handle.SetCompletedStreams(stdout, stderr, exitCode)
+	}
 
 	// Register handle
 	b.mu.Lock()
@@ -184,8 +196,18 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 	return handle, nil
 }
 
-// waitForPodRunning waits for a pod to reach Running state with container ready.
-func (b *Backend) waitForPodRunning(ctx context.Context, podName string, timeout time.Duration) error {
+// podState represents the state of a pod after waiting.
+type podState int
+
+const (
+	podStateRunning   podState = iota // Pod is running
+	podStateSucceeded                 // Pod completed successfully
+	podStateFailed                    // Pod failed
+)
+
+// waitForPodReady waits for a pod to reach Running or terminal state.
+// Returns the state and exit code (if terminal).
+func (b *Backend) waitForPodReady(ctx context.Context, podName string, timeout time.Duration) (podState, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -195,25 +217,43 @@ func (b *Backend) waitForPodRunning(ctx context.Context, podName string, timeout
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for pod to run: %w", ctx.Err())
+			return 0, 0, fmt.Errorf("timeout waiting for pod to run: %w", ctx.Err())
 		case <-ticker.C:
 			pod, err := b.clientset.CoreV1().Pods(b.config.Namespace).Get(ctx, podName, metav1.GetOptions{})
 			if err != nil {
-				return fmt.Errorf("failed to get pod: %w", err)
+				return 0, 0, fmt.Errorf("failed to get pod: %w", err)
 			}
 
 			switch pod.Status.Phase {
 			case corev1.PodRunning:
-				// Also check that the main container is actually running
+				// Check that the main container is actually running
 				if len(pod.Status.ContainerStatuses) > 0 {
 					cs := pod.Status.ContainerStatuses[0]
 					if cs.State.Running != nil && cs.Ready {
-						return nil
+						return podStateRunning, 0, nil
 					}
 				}
 				// Pod is running but container not ready yet, continue waiting
-			case corev1.PodFailed, corev1.PodSucceeded:
-				return fmt.Errorf("pod entered terminal state: %s", pod.Status.Phase)
+
+			case corev1.PodSucceeded:
+				// Pod completed successfully - this is valid for one-shot commands
+				exitCode := 0
+				if len(pod.Status.ContainerStatuses) > 0 {
+					if term := pod.Status.ContainerStatuses[0].State.Terminated; term != nil {
+						exitCode = int(term.ExitCode)
+					}
+				}
+				return podStateSucceeded, exitCode, nil
+
+			case corev1.PodFailed:
+				// Pod failed
+				exitCode := 1
+				if len(pod.Status.ContainerStatuses) > 0 {
+					if term := pod.Status.ContainerStatuses[0].State.Terminated; term != nil {
+						exitCode = int(term.ExitCode)
+					}
+				}
+				return podStateFailed, exitCode, nil
 			}
 		}
 	}
@@ -349,35 +389,44 @@ func (b *Backend) List(ctx context.Context, filter execbox.Filter) ([]execbox.Se
 	return results, nil
 }
 
-// Stop gracefully stops a pod by sending SIGTERM.
+// Stop gracefully stops a pod by deleting it with a grace period.
+// Note: In K8s, signals to PID 1 are not forwarded by default, so we use
+// pod deletion with a grace period to allow graceful shutdown.
 func (b *Backend) Stop(ctx context.Context, id string) error {
 	b.mu.RLock()
 	handle := b.handles[id]
 	b.mu.RUnlock()
 
-	if handle == nil {
-		// Try to find pod
-		labelSelector := fmt.Sprintf("execbox.io/session-id=%s", id)
-		pods, err := b.clientset.CoreV1().Pods(b.config.Namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list pods: %w", err)
-		}
-		if len(pods.Items) == 0 {
-			return execbox.ErrSessionNotFound
-		}
+	// Find pod
+	labelSelector := fmt.Sprintf("execbox.io/session-id=%s", id)
+	pods, err := b.clientset.CoreV1().Pods(b.config.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+	if len(pods.Items) == 0 {
+		return execbox.ErrSessionNotFound
 	}
 
-	// Send SIGTERM to process 1
-	_, _, _, err := b.Exec(ctx, id, []string{"kill", "-TERM", "1"})
-	if err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
+	pod := &pods.Items[0]
+
+	// Delete pod with grace period (K8s will send SIGTERM, then SIGKILL after grace period)
+	gracePeriod := int64(10) // 10 seconds grace period
+	deleteOptions := metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriod,
+	}
+
+	if err := b.clientset.CoreV1().Pods(b.config.Namespace).Delete(ctx, pod.Name, deleteOptions); err != nil {
+		return fmt.Errorf("failed to stop pod: %w", err)
 	}
 
 	if handle != nil {
 		handle.SetStopping()
 	}
+
+	// Note: Don't remove handle here - let the watcher detect the pod deletion
+	// and signal completion through the normal flow.
 
 	return nil
 }
@@ -417,9 +466,9 @@ func (b *Backend) Kill(ctx context.Context, id string) error {
 		handle.SetKilled()
 	}
 
-	// Remove handle from map after pod deletion to prevent memory leak
-	// The watcher will also try to remove it, but removeHandle is idempotent
-	b.removeHandle(id)
+	// Note: Don't remove handle here - let the watcher detect the pod deletion
+	// and signal completion through the normal flow. The watcher will call
+	// removeHandle when it receives the DELETED event.
 
 	return nil
 }
@@ -512,6 +561,30 @@ func (b *Backend) attachToPod(ctx context.Context, podName, containerName string
 	}()
 
 	return stdinWriter, stdoutReader, stderrReader, nil
+}
+
+// readPodLogs reads the logs from a completed pod.
+// Returns stdout and stderr as separate strings.
+func (b *Backend) readPodLogs(ctx context.Context, podName, containerName string) (string, string, error) {
+	// Read stdout (main logs)
+	req := b.clientset.CoreV1().Pods(b.config.Namespace).GetLogs(podName, &corev1.PodLogOptions{
+		Container: containerName,
+	})
+
+	logStream, err := req.Stream(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get pod logs: %w", err)
+	}
+	defer logStream.Close()
+
+	stdout, err := io.ReadAll(logStream)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read pod logs: %w", err)
+	}
+
+	// Note: K8s doesn't separate stdout/stderr in logs by default.
+	// All output goes to the same log stream.
+	return string(stdout), "", nil
 }
 
 // Exec runs a command in a running pod.

@@ -7,6 +7,7 @@ import (
 	"github.com/burka/execbox/pkg/execbox"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 // watchPod watches for pod phase changes and signals exit when the pod terminates.
@@ -33,6 +34,16 @@ func (b *Backend) watchPod(ctx context.Context, h *Handle, podName string) {
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
 				// Channel closed, stop watching
+				return
+			}
+
+			// Handle pod deletion (from Kill or Destroy)
+			if event.Type == watch.Deleted {
+				h.SignalExit(execbox.ExitResult{
+					Code:  137, // SIGKILL exit code
+					Error: nil,
+				})
+				b.removeHandle(h.ID())
 				return
 			}
 

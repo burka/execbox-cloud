@@ -310,6 +310,46 @@ func (h *Handle) SetNetwork(network *execbox.NetworkInfo) {
 	h.network = network
 }
 
+// SetCompletedStreams sets up streams for a pod that completed before attachment.
+// It writes the logs to the buffered pipes and signals completion.
+func (h *Handle) SetCompletedStreams(stdout, stderr string, exitCode int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Write logs to buffered pipes
+	if stdout != "" {
+		h.stdout.Write([]byte(stdout))
+	}
+	if stderr != "" {
+		h.stderr.Write([]byte(stderr))
+	}
+
+	// Mark as finished
+	h.stdout.Finish()
+	h.stderr.Finish()
+
+	// Update status
+	h.exitCode = &exitCode
+	if exitCode == 0 {
+		h.status = execbox.StatusStopped
+	} else {
+		h.status = execbox.StatusFailed
+	}
+
+	// Signal exit
+	result := execbox.ExitResult{Code: exitCode}
+	select {
+	case h.done <- result:
+	default:
+	}
+
+	select {
+	case <-h.exitSig:
+	default:
+		close(h.exitSig)
+	}
+}
+
 // SetCancelWatcher sets the cancel function for the pod watcher.
 func (h *Handle) SetCancelWatcher(cancel func()) {
 	h.mu.Lock()
