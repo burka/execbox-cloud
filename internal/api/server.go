@@ -162,7 +162,7 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	// Return healthy status
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // handleAttach wraps the WebSocket attach handler to extract session ID and API key.
