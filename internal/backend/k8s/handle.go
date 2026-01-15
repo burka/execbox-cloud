@@ -31,6 +31,10 @@ type Handle struct {
 	stdout *pipe.BufferedPipe
 	stderr *pipe.BufferedPipe
 
+	// Attach streams from pod
+	attachStdout io.ReadCloser
+	attachStderr io.ReadCloser
+
 	// Synchronization
 	done    chan execbox.ExitResult
 	exitSig chan struct{}
@@ -39,11 +43,14 @@ type Handle struct {
 	portForwarders map[int]*portForwarder
 
 	// K8s clients (needed for port forward)
-	clientset  *kubernetes.Clientset
+	clientset  kubernetes.Interface
 	restConfig *rest.Config
 
 	// Network info
 	network *execbox.NetworkInfo
+
+	// Watcher cancellation
+	cancelWatcher func()
 
 	mu sync.RWMutex
 }
@@ -61,7 +68,7 @@ type portForwarder struct {
 func NewHandle(
 	id, podName, namespace string,
 	spec execbox.Spec,
-	clientset *kubernetes.Clientset,
+	clientset kubernetes.Interface,
 	restConfig *rest.Config,
 ) *Handle {
 	return &Handle{
@@ -265,11 +272,49 @@ func (h *Handle) SetStdin(stdin io.WriteCloser) {
 	h.stdin = stdin
 }
 
+// SetAttachStreams connects the pod's stdout/stderr to the handle's BufferedPipes.
+// It starts goroutines to copy data from the attach streams to the BufferedPipes.
+func (h *Handle) SetAttachStreams(stdout, stderr io.Reader) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Wrap readers as ReadCloser
+	if rc, ok := stdout.(io.ReadCloser); ok {
+		h.attachStdout = rc
+	} else {
+		h.attachStdout = io.NopCloser(stdout)
+	}
+
+	if rc, ok := stderr.(io.ReadCloser); ok {
+		h.attachStderr = rc
+	} else {
+		h.attachStderr = io.NopCloser(stderr)
+	}
+
+	// Start copying from attach streams to BufferedPipes
+	go func() {
+		_, _ = io.Copy(h.stdout, h.attachStdout)
+		h.stdout.Finish()
+	}()
+
+	go func() {
+		_, _ = io.Copy(h.stderr, h.attachStderr)
+		h.stderr.Finish()
+	}()
+}
+
 // SetNetwork updates the network information.
 func (h *Handle) SetNetwork(network *execbox.NetworkInfo) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.network = network
+}
+
+// SetCancelWatcher sets the cancel function for the pod watcher.
+func (h *Handle) SetCancelWatcher(cancel func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelWatcher = cancel
 }
 
 // SignalExit signals that the session has exited and sends the result.
@@ -315,6 +360,12 @@ func (h *Handle) Close() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// Cancel the pod watcher if it exists
+	if h.cancelWatcher != nil {
+		h.cancelWatcher()
+		h.cancelWatcher = nil
+	}
+
 	// Stop all port forwarders
 	for _, pf := range h.portForwarders {
 		close(pf.stopChan)
@@ -324,6 +375,14 @@ func (h *Handle) Close() error {
 	// Close stdin if it exists
 	if h.stdin != nil {
 		h.stdin.Close()
+	}
+
+	// Close attach streams
+	if h.attachStdout != nil {
+		h.attachStdout.Close()
+	}
+	if h.attachStderr != nil {
+		h.attachStderr.Close()
 	}
 
 	// Close stdout and stderr

@@ -1,11 +1,13 @@
 package k8s
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/burka/execbox/pkg/execbox"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestEnvMapToEnvVars(t *testing.T) {
@@ -421,4 +423,763 @@ func TestVolumesToPodVolumes(t *testing.T) {
 	if volumeMounts[0].MountPath != "/cache" {
 		t.Errorf("mount path = %q, want %q", volumeMounts[0].MountPath, "/cache")
 	}
+}
+
+func TestPodToSessionInfo(t *testing.T) {
+	tests := []struct {
+		name              string
+		pod               *corev1.Pod
+		sessionID         string
+		expectedStatus    execbox.Status
+		expectedExitCode  *int
+		expectedError     string
+		expectedContID    string
+		expectSpecInAnnot bool
+	}{
+		{
+			name: "running pod with container status",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "execbox-abc123",
+					Namespace:         "default",
+					CreationTimestamp: metav1.Time{Time: metav1.Now().Time},
+					Annotations: map[string]string{
+						AnnotationOriginalSpec: `{"image":"alpine:latest","command":["sh"]}`,
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							ContainerID: "docker://abc123def456",
+							State: corev1.ContainerState{
+								Running: &corev1.ContainerStateRunning{},
+							},
+						},
+					},
+				},
+			},
+			sessionID:         "abc123",
+			expectedStatus:    execbox.StatusRunning,
+			expectedContID:    "docker://abc123def456",
+			expectSpecInAnnot: true,
+		},
+		{
+			name: "failed pod with exit code",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "execbox-def456",
+					Namespace:         "default",
+					CreationTimestamp: metav1.Time{Time: metav1.Now().Time},
+					Annotations: map[string]string{
+						AnnotationOriginalSpec: `{"image":"python:3.12"}`,
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodFailed,
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							ContainerID: "docker://def456ghi789",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 127,
+									Reason:   "Error",
+									Message:  "command not found",
+								},
+							},
+						},
+					},
+				},
+			},
+			sessionID:         "def456",
+			expectedStatus:    execbox.StatusFailed,
+			expectedExitCode:  intPtr(127),
+			expectedError:     "Error: command not found",
+			expectedContID:    "docker://def456ghi789",
+			expectSpecInAnnot: true,
+		},
+		{
+			name: "pod without container statuses",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "execbox-ghi789",
+					Namespace:         "default",
+					CreationTimestamp: metav1.Time{Time: metav1.Now().Time},
+					Annotations: map[string]string{
+						AnnotationOriginalSpec: `{"image":"ubuntu:22.04"}`,
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase:             corev1.PodPending,
+					ContainerStatuses: []corev1.ContainerStatus{},
+				},
+			},
+			sessionID:         "ghi789",
+			expectedStatus:    execbox.StatusPending,
+			expectSpecInAnnot: true,
+		},
+		{
+			name: "pod without original spec annotation",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "execbox-jkl012",
+					Namespace:         "default",
+					CreationTimestamp: metav1.Time{Time: metav1.Now().Time},
+					Annotations:       map[string]string{},
+					Labels: map[string]string{
+						"app":          "test",
+						LabelSessionID: "jkl012",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:       "main",
+							Image:      "nginx:latest",
+							WorkingDir: "/app",
+							Env: []corev1.EnvVar{
+								{Name: "ENV_VAR", Value: "value"},
+							},
+							TTY: true,
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							ContainerID: "docker://jkl012mno345",
+							State: corev1.ContainerState{
+								Running: &corev1.ContainerStateRunning{},
+							},
+						},
+					},
+				},
+			},
+			sessionID:         "jkl012",
+			expectedStatus:    execbox.StatusRunning,
+			expectedContID:    "docker://jkl012mno345",
+			expectSpecInAnnot: false,
+		},
+		{
+			name: "succeeded pod",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "execbox-mno345",
+					Namespace:         "default",
+					CreationTimestamp: metav1.Time{Time: metav1.Now().Time},
+					Annotations: map[string]string{
+						AnnotationOriginalSpec: `{"image":"busybox"}`,
+					},
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodSucceeded,
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							ContainerID: "docker://mno345pqr678",
+							State: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									ExitCode: 0,
+								},
+							},
+						},
+					},
+				},
+			},
+			sessionID:         "mno345",
+			expectedStatus:    execbox.StatusStopped,
+			expectedExitCode:  intPtr(0),
+			expectedContID:    "docker://mno345pqr678",
+			expectSpecInAnnot: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := PodToSessionInfo(tt.pod, tt.sessionID)
+
+			if info.ID != tt.sessionID {
+				t.Errorf("ID = %q, want %q", info.ID, tt.sessionID)
+			}
+
+			if info.Status != tt.expectedStatus {
+				t.Errorf("Status = %v, want %v", info.Status, tt.expectedStatus)
+			}
+
+			if info.ContainerID != tt.expectedContID {
+				t.Errorf("ContainerID = %q, want %q", info.ContainerID, tt.expectedContID)
+			}
+
+			if tt.expectedExitCode != nil {
+				if info.ExitCode == nil {
+					t.Error("ExitCode is nil, expected non-nil")
+				} else if *info.ExitCode != *tt.expectedExitCode {
+					t.Errorf("ExitCode = %d, want %d", *info.ExitCode, *tt.expectedExitCode)
+				}
+			} else {
+				if info.ExitCode != nil {
+					t.Errorf("ExitCode = %d, want nil", *info.ExitCode)
+				}
+			}
+
+			if tt.expectedError != "" {
+				if info.Error != tt.expectedError {
+					t.Errorf("Error = %q, want %q", info.Error, tt.expectedError)
+				}
+			}
+
+			// Verify spec is populated
+			if info.Spec.Image == "" {
+				t.Error("Spec.Image is empty")
+			}
+
+			// For pods without annotation, check reconstruction worked
+			if !tt.expectSpecInAnnot {
+				if info.Spec.Image != "nginx:latest" {
+					t.Errorf("Reconstructed Spec.Image = %q, want %q", info.Spec.Image, "nginx:latest")
+				}
+				if info.Spec.WorkDir != "/app" {
+					t.Errorf("Reconstructed Spec.WorkDir = %q, want %q", info.Spec.WorkDir, "/app")
+				}
+			}
+		})
+	}
+}
+
+func TestPodToSpec(t *testing.T) {
+	tests := []struct {
+		name          string
+		pod           *corev1.Pod
+		expectedImage string
+		expectedCmd   []string
+		expectedEnv   map[string]string
+		expectEmpty   bool
+	}{
+		{
+			name: "reconstruction from pod spec",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "execbox-abc123",
+					Namespace: "default",
+					Labels: map[string]string{
+						"app":              "myapp",
+						"env":              "prod",
+						LabelSessionID:     "abc123",
+						LabelManagedBy:     LabelManagedVal,
+						"execbox.io/other": "filtered",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:       "main",
+							Image:      "python:3.12",
+							Command:    []string{"python", "app.py"},
+							WorkingDir: "/workspace",
+							Env: []corev1.EnvVar{
+								{Name: "PYTHONPATH", Value: "/app/lib"},
+								{Name: "DEBUG", Value: "true"},
+							},
+							TTY: true,
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    *resource.NewMilliQuantity(2000, resource.DecimalSI),
+									corev1.ResourceMemory: *resource.NewQuantity(1024*1024*1024, resource.BinarySI),
+								},
+							},
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+							},
+						},
+					},
+				},
+			},
+			expectedImage: "python:3.12",
+			expectedCmd:   []string{"python", "app.py"},
+			expectedEnv: map[string]string{
+				"PYTHONPATH": "/app/lib",
+				"DEBUG":      "true",
+			},
+		},
+		{
+			name: "empty containers",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "execbox-def456",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{},
+				},
+			},
+			expectEmpty: true,
+		},
+		{
+			name: "minimal pod spec",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "execbox-ghi789",
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "alpine",
+						},
+					},
+				},
+			},
+			expectedImage: "alpine",
+			expectedCmd:   nil,
+			expectedEnv:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := PodToSpec(tt.pod)
+
+			if tt.expectEmpty {
+				if spec.Image != "" {
+					t.Errorf("expected empty spec, got Image = %q", spec.Image)
+				}
+				return
+			}
+
+			if spec.Image != tt.expectedImage {
+				t.Errorf("Image = %q, want %q", spec.Image, tt.expectedImage)
+			}
+
+			if len(spec.Command) != len(tt.expectedCmd) {
+				t.Errorf("Command length = %d, want %d", len(spec.Command), len(tt.expectedCmd))
+			} else {
+				for i, cmd := range tt.expectedCmd {
+					if spec.Command[i] != cmd {
+						t.Errorf("Command[%d] = %q, want %q", i, spec.Command[i], cmd)
+					}
+				}
+			}
+
+			if len(spec.Env) != len(tt.expectedEnv) {
+				t.Errorf("Env length = %d, want %d", len(spec.Env), len(tt.expectedEnv))
+			} else {
+				for k, v := range tt.expectedEnv {
+					if spec.Env[k] != v {
+						t.Errorf("Env[%q] = %q, want %q", k, spec.Env[k], v)
+					}
+				}
+			}
+
+			// Verify user labels are extracted (system labels filtered)
+			if tt.name == "reconstruction from pod spec" {
+				if _, hasSystem := spec.Labels[LabelSessionID]; hasSystem {
+					t.Errorf("Labels should not contain system label %s", LabelSessionID)
+				}
+				if _, hasSystem := spec.Labels[LabelManagedBy]; hasSystem {
+					t.Errorf("Labels should not contain system label %s", LabelManagedBy)
+				}
+				if _, hasSystem := spec.Labels["execbox.io/other"]; hasSystem {
+					t.Error("Labels should not contain execbox.io/ prefixed labels")
+				}
+				if spec.Labels["app"] != "myapp" {
+					t.Errorf("Labels[app] = %q, want %q", spec.Labels["app"], "myapp")
+				}
+				if spec.Labels["env"] != "prod" {
+					t.Errorf("Labels[env] = %q, want %q", spec.Labels["env"], "prod")
+				}
+			}
+		})
+	}
+}
+
+func TestEnvVarsToMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		envVars  []corev1.EnvVar
+		expected map[string]string
+	}{
+		{
+			name: "normal conversion",
+			envVars: []corev1.EnvVar{
+				{Name: "KEY1", Value: "value1"},
+				{Name: "KEY2", Value: "value2"},
+				{Name: "PATH", Value: "/usr/bin:/bin"},
+			},
+			expected: map[string]string{
+				"KEY1": "value1",
+				"KEY2": "value2",
+				"PATH": "/usr/bin:/bin",
+			},
+		},
+		{
+			name:     "empty input",
+			envVars:  []corev1.EnvVar{},
+			expected: nil,
+		},
+		{
+			name:     "nil input",
+			envVars:  nil,
+			expected: nil,
+		},
+		{
+			name: "skip ValueFrom entries",
+			envVars: []corev1.EnvVar{
+				{Name: "NORMAL", Value: "value"},
+				{
+					Name: "FROM_SECRET",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "secret"},
+							Key:                  "key",
+						},
+					},
+				},
+				{Name: "ANOTHER", Value: "another"},
+			},
+			expected: map[string]string{
+				"NORMAL":  "value",
+				"ANOTHER": "another",
+			},
+		},
+		{
+			name: "empty value",
+			envVars: []corev1.EnvVar{
+				{Name: "EMPTY", Value: ""},
+				{Name: "NOT_EMPTY", Value: "has value"},
+			},
+			expected: map[string]string{
+				"NOT_EMPTY": "has value",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := EnvVarsToMap(tt.envVars)
+
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("expected nil, got %v", result)
+				}
+				return
+			}
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("length = %d, want %d", len(result), len(tt.expected))
+			}
+
+			for k, v := range tt.expected {
+				if result[k] != v {
+					t.Errorf("result[%q] = %q, want %q", k, result[k], v)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractUserLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected map[string]string
+	}{
+		{
+			name: "filter execbox.io/ prefixed labels",
+			labels: map[string]string{
+				"app":                 "myapp",
+				"env":                 "production",
+				LabelSessionID:        "abc123",
+				LabelManagedBy:        LabelManagedVal,
+				"execbox.io/version":  "1.0",
+				"execbox.io/internal": "data",
+				"team":                "platform",
+			},
+			expected: map[string]string{
+				"app":  "myapp",
+				"env":  "production",
+				"team": "platform",
+			},
+		},
+		{
+			name:     "empty input",
+			labels:   map[string]string{},
+			expected: nil,
+		},
+		{
+			name:     "nil input",
+			labels:   nil,
+			expected: nil,
+		},
+		{
+			name: "all system labels",
+			labels: map[string]string{
+				LabelSessionID:       "abc123",
+				LabelManagedBy:       LabelManagedVal,
+				"execbox.io/version": "1.0",
+			},
+			expected: nil,
+		},
+		{
+			name: "no system labels",
+			labels: map[string]string{
+				"app":     "frontend",
+				"version": "2.0",
+			},
+			expected: map[string]string{
+				"app":     "frontend",
+				"version": "2.0",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractUserLabels(tt.labels)
+
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("expected nil, got %v", result)
+				}
+				return
+			}
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("length = %d, want %d", len(result), len(tt.expected))
+			}
+
+			for k, v := range tt.expected {
+				if result[k] != v {
+					t.Errorf("result[%q] = %q, want %q", k, result[k], v)
+				}
+			}
+
+			// Verify no execbox.io/ labels are present
+			for k := range result {
+				if strings.HasPrefix(k, "execbox.io/") {
+					t.Errorf("found system label in result: %q", k)
+				}
+			}
+		})
+	}
+}
+
+func TestContainerPortsToPorts(t *testing.T) {
+	tests := []struct {
+		name           string
+		containerPorts []corev1.ContainerPort
+		expected       []execbox.Port
+	}{
+		{
+			name: "normal conversion",
+			containerPorts: []corev1.ContainerPort{
+				{ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+				{ContainerPort: 9090, Protocol: corev1.ProtocolUDP},
+				{ContainerPort: 3000, Protocol: corev1.ProtocolSCTP},
+			},
+			expected: []execbox.Port{
+				{Container: 8080, Protocol: "tcp"},
+				{Container: 9090, Protocol: "udp"},
+				{Container: 3000, Protocol: "sctp"},
+			},
+		},
+		{
+			name:           "empty input",
+			containerPorts: []corev1.ContainerPort{},
+			expected:       nil,
+		},
+		{
+			name:           "nil input",
+			containerPorts: nil,
+			expected:       nil,
+		},
+		{
+			name: "single port",
+			containerPorts: []corev1.ContainerPort{
+				{ContainerPort: 443, Protocol: corev1.ProtocolTCP},
+			},
+			expected: []execbox.Port{
+				{Container: 443, Protocol: "tcp"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ContainerPortsToPorts(tt.containerPorts)
+
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("expected nil, got %v", result)
+				}
+				return
+			}
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("length = %d, want %d", len(result), len(tt.expected))
+			}
+
+			for i, expected := range tt.expected {
+				if result[i].Container != expected.Container {
+					t.Errorf("result[%d].Container = %d, want %d", i, result[i].Container, expected.Container)
+				}
+				if result[i].Protocol != expected.Protocol {
+					t.Errorf("result[%d].Protocol = %q, want %q", i, result[i].Protocol, expected.Protocol)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildNetworkInfo(t *testing.T) {
+	tests := []struct {
+		name         string
+		pod          *corev1.Pod
+		expectNil    bool
+		expectedMode string
+		expectedHost string
+		numPorts     int
+	}{
+		{
+			name: "pod with ports",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "execbox-abc123",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "nginx:latest",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+								{ContainerPort: 9090, Protocol: corev1.ProtocolUDP},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.0.1.100",
+				},
+			},
+			expectedMode: string(execbox.NetworkExposed),
+			expectedHost: "localhost",
+			numPorts:     2,
+		},
+		{
+			name: "pod without ports",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "execbox-def456",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "alpine:latest",
+							Ports: []corev1.ContainerPort{},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.0.1.101",
+				},
+			},
+			expectNil: true,
+		},
+		{
+			name: "empty containers",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "execbox-ghi789",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{},
+				},
+			},
+			expectNil: true,
+		},
+		{
+			name: "pod with single port",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "execbox-jkl012",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "redis:latest",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 6379, Protocol: corev1.ProtocolTCP},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.0.1.102",
+				},
+			},
+			expectedMode: string(execbox.NetworkExposed),
+			expectedHost: "localhost",
+			numPorts:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := BuildNetworkInfo(tt.pod)
+
+			if tt.expectNil {
+				if result != nil {
+					t.Errorf("expected nil, got %+v", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Fatal("result is nil, expected non-nil")
+			}
+
+			if result.Mode != tt.expectedMode {
+				t.Errorf("Mode = %q, want %q", result.Mode, tt.expectedMode)
+			}
+
+			if result.Host != tt.expectedHost {
+				t.Errorf("Host = %q, want %q", result.Host, tt.expectedHost)
+			}
+
+			if result.IPAddress != tt.pod.Status.PodIP {
+				t.Errorf("IPAddress = %q, want %q", result.IPAddress, tt.pod.Status.PodIP)
+			}
+
+			if len(result.Ports) != tt.numPorts {
+				t.Errorf("Ports length = %d, want %d", len(result.Ports), tt.numPorts)
+			}
+
+			// Verify port mappings
+			for _, cp := range tt.pod.Spec.Containers[0].Ports {
+				containerPort := int(cp.ContainerPort)
+				portInfo, exists := result.Ports[containerPort]
+				if !exists {
+					t.Errorf("missing port info for container port %d", containerPort)
+					continue
+				}
+
+				if portInfo.HostPort != containerPort {
+					t.Errorf("HostPort = %d, want %d", portInfo.HostPort, containerPort)
+				}
+
+				expectedProtocol := K8sToProtocol(cp.Protocol)
+				if portInfo.Protocol != expectedProtocol {
+					t.Errorf("Protocol = %q, want %q", portInfo.Protocol, expectedProtocol)
+				}
+			}
+		})
+	}
+}
+
+// Helper function to create int pointer
+func intPtr(i int) *int {
+	return &i
 }

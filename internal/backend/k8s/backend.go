@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -30,7 +31,7 @@ type BackendConfig struct {
 
 // Backend implements execbox.Backend for Kubernetes.
 type Backend struct {
-	clientset  *kubernetes.Clientset
+	clientset  kubernetes.Interface
 	restConfig *rest.Config
 	config     BackendConfig
 	handles    map[string]*Handle
@@ -160,10 +161,25 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 	// Create handle
 	handle := NewHandle(sessionID, createdPod.Name, b.config.Namespace, spec, b.clientset, b.restConfig)
 
+	// Attach to pod streams
+	containerName := "main" // Default container name from SpecToPod
+	stdin, stdout, stderr, err := b.attachToPod(ctx, createdPod.Name, containerName, spec.TTY)
+	if err != nil {
+		_ = b.destroyResources(ctx, sessionID)
+		return nil, fmt.Errorf("failed to attach to pod: %w", err)
+	}
+
+	// Wire streams to handle
+	handle.SetStdin(stdin)
+	handle.SetAttachStreams(stdout, stderr)
+
 	// Register handle
 	b.mu.Lock()
 	b.handles[sessionID] = handle
 	b.mu.Unlock()
+
+	// Start pod watcher in background
+	b.startWatching(handle, createdPod.Name)
 
 	return handle, nil
 }
@@ -230,14 +246,29 @@ func (b *Backend) Attach(ctx context.Context, id string) (execbox.Handle, error)
 	spec := execbox.Spec{
 		Image:   pod.Spec.Containers[0].Image,
 		Command: cmd,
+		TTY:     pod.Spec.Containers[0].TTY,
 	}
 
 	handle = NewHandle(id, pod.Name, b.config.Namespace, spec, b.clientset, b.restConfig)
+
+	// Attach to pod streams
+	containerName := pod.Spec.Containers[0].Name
+	stdin, stdout, stderr, err := b.attachToPod(ctx, pod.Name, containerName, spec.TTY)
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach to pod: %w", err)
+	}
+
+	// Wire streams to handle
+	handle.SetStdin(stdin)
+	handle.SetAttachStreams(stdout, stderr)
 
 	// Register handle
 	b.mu.Lock()
 	b.handles[id] = handle
 	b.mu.Unlock()
+
+	// Start pod watcher in background
+	b.startWatching(handle, pod.Name)
 
 	return handle, nil
 }
@@ -379,6 +410,10 @@ func (b *Backend) Kill(ctx context.Context, id string) error {
 		handle.SetKilled()
 	}
 
+	// Remove handle from map after pod deletion to prevent memory leak
+	// The watcher will also try to remove it, but removeHandle is idempotent
+	b.removeHandle(id)
+
 	return nil
 }
 
@@ -422,6 +457,54 @@ func (b *Backend) destroyResources(ctx context.Context, sessionID string) error 
 	}
 
 	return nil
+}
+
+// attachToPod attaches to a running pod's stdin/stdout/stderr streams.
+// Returns streams that can be used for I/O with the pod's main process.
+func (b *Backend) attachToPod(ctx context.Context, podName, containerName string, tty bool) (stdin io.WriteCloser, stdout, stderr io.Reader, err error) {
+	// Create the attach request
+	req := b.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(b.config.Namespace).
+		SubResource("attach").
+		VersionedParams(&corev1.PodAttachOptions{
+			Container: containerName,
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       tty,
+		}, scheme.ParameterCodec)
+
+	// Create SPDY executor
+	executor, err := remotecommand.NewSPDYExecutor(b.restConfig, "POST", req.URL())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create attach executor: %w", err)
+	}
+
+	// Create pipes for stdin/stdout/stderr
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+	stderrReader, stderrWriter := io.Pipe()
+
+	// Start streaming in a goroutine
+	go func() {
+		streamErr := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdin:  stdinReader,
+			Stdout: stdoutWriter,
+			Stderr: stderrWriter,
+			Tty:    tty,
+		})
+
+		// Close writers when stream ends
+		stdoutWriter.Close()
+		stderrWriter.Close()
+		stdinReader.Close()
+
+		_ = streamErr // Stream error is expected when pod exits
+	}()
+
+	return stdinWriter, stdoutReader, stderrReader, nil
 }
 
 // Exec runs a command in a running pod.
@@ -514,6 +597,18 @@ func (b *Backend) Health(ctx context.Context) error {
 		return fmt.Errorf("kubernetes API unhealthy: %w", err)
 	}
 	return nil
+}
+
+// removeHandle safely removes a handle from the map and closes it.
+func (b *Backend) removeHandle(sessionID string) {
+	b.mu.Lock()
+	handle := b.handles[sessionID]
+	delete(b.handles, sessionID)
+	b.mu.Unlock()
+
+	if handle != nil {
+		handle.Close()
+	}
 }
 
 // Close releases all resources.
