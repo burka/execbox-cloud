@@ -76,6 +76,22 @@ func (c *Client) CreateMachine(ctx context.Context, config *MachineConfig) (*Mac
 	return &machine, nil
 }
 
+// ListMachines returns all machines for the app
+func (c *Client) ListMachines(ctx context.Context) ([]Machine, error) {
+	path := fmt.Sprintf("/apps/%s/machines", c.appName)
+	resp, err := c.request(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var machines []Machine
+	if err := decodeResponse(resp, &machines); err != nil {
+		return nil, err
+	}
+
+	return machines, nil
+}
+
 // GetMachine retrieves a machine by ID
 func (c *Client) GetMachine(ctx context.Context, machineID string) (*Machine, error) {
 	if machineID == "" {
