@@ -43,8 +43,11 @@ go test ./internal/api/...
 # Test WebSocket protocol
 go test ./internal/api/websocket_test.go
 
-# Run integration tests (against real Fly.io account)
-FLY_API_TOKEN=... DATABASE_URL=... go test ./test/integration/...
+# Run all tests with full backend (recommended)
+./scripts/run-integration-tests.sh
+
+# Run integration tests manually (requires K8s backend running)
+go test -tags integration ./test/integration/... -v -timeout 5m
 ```
 
 ## Database Agent
@@ -331,6 +334,48 @@ fly.toml:
 | Secrets & vars | Infra Agent | `.env.example` |
 | Build targets | Infra Agent | `Makefile` |
 | Main entrypoint | Infra Agent | `cmd/server/main.go` |
+
+---
+
+## Integration Test Runner
+
+The script `scripts/run-integration-tests.sh` automates the full test workflow:
+
+```bash
+# Run all tests (unit + integration) with full backend
+./scripts/run-integration-tests.sh
+```
+
+**What it does:**
+1. Checks prerequisites (Docker, Go, microk8s kubeconfig)
+2. Starts development database (PostgreSQL on port 5433)
+3. Starts server with K8s backend in background
+4. Waits for health check at `http://localhost:28080/health`
+5. Runs unit tests: `go test ./...`
+6. Runs integration tests: `go test -tags integration ./test/integration/...`
+7. Reports results with pass/fail summary
+8. Cleans up server (leaves database running for next run)
+
+**Prerequisites:**
+- Docker and Docker Compose installed
+- Go installed
+- microk8s kubeconfig at `/tmp/microk8s-kubeconfig`
+- K8s namespace `execbox` exists with proper RBAC
+
+**Output:**
+- Server logs: `/tmp/execbox.log`
+- Color-coded pass/fail results
+- Exit code 0 on success, 1 on any test failure
+
+**Environment used by script:**
+```bash
+BACKEND=kubernetes
+K8S_KUBECONFIG=/tmp/microk8s-kubeconfig
+K8S_NAMESPACE=execbox
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/execbox
+PORT=28080
+LOG_LEVEL=debug
+```
 
 ---
 

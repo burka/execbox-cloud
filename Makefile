@@ -1,5 +1,8 @@
 .PHONY: build build-dashboard prepare-static run dev dev-frontend test test-all lint lint-all check clean deploy deploy-prod logs status generate openapi run-devdb stop-devdb setup-env dev-with-db dev-setup
 
+# Docker Compose command detection (plugin or standalone)
+DOCKER_COMPOSE := $(shell if docker compose version > /dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose > /dev/null 2>&1; then echo "docker-compose"; fi)
+
 # Generate OpenAPI spec from Go code
 openapi.json: $(shell find internal -name '*.go') cmd/server/main.go
 	go run ./cmd/server --openapi > openapi.json
@@ -111,8 +114,8 @@ run-devdb: setup-env
 		echo "❌ Docker is required but not installed. Please install Docker first."; \
 		exit 1; \
 	fi
-	@if ! docker-compose --version > /dev/null 2>&1; then \
-		echo "❌ Docker Compose is required but not installed. Please install Docker Compose first."; \
+	@if [ -z "$(DOCKER_COMPOSE)" ]; then \
+		echo "❌ Docker Compose is required but not installed. Please install Docker or Docker Compose."; \
 		exit 1; \
 	fi
 	@if [ ! -f docker-compose.yml ]; then \
@@ -142,10 +145,10 @@ run-devdb: setup-env
 		echo "  postgres_data:" >> docker-compose.yml; \
 		echo "    driver: local" >> docker-compose.yml; \
 	fi
-	docker-compose up -d postgres
+	$(DOCKER_COMPOSE) up -d postgres
 	@echo "⏳ Waiting for database to be ready..."
 	@sleep 5
-	@until docker-compose exec -T postgres pg_isready -U postgres -d execbox > /dev/null 2>&1; do \
+	@until $(DOCKER_COMPOSE) exec -T postgres pg_isready -U postgres -d execbox > /dev/null 2>&1; do \
 		echo "⏳ Waiting for postgres..."; \
 		sleep 2; \
 	done
@@ -158,7 +161,7 @@ run-devdb: setup-env
 # Stop Development Database
 stop-devdb:
 	@echo "🛑 Stopping development database..."
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 	@echo "✅ Database stopped"
 
 # Reset Development Database (delete all data)
@@ -185,7 +188,7 @@ dev-db: run-devdb
 	@echo "   Terminal 2: make dev-frontend  # Start frontend dev server"
 	@echo ""
 	@echo "🔍 Useful commands:"
-	@echo "   • Database:    docker-compose logs postgres"
+	@echo "   • Database:    $(DOCKER_COMPOSE) logs postgres"
 	@echo "   • Backend:     Logs will appear in terminal"
 	@echo "   • Frontend:    Hot reload enabled in browser"
 	@echo "   • Stop all:    make stop-devdb"
@@ -216,14 +219,14 @@ db-migrate:
 
 db-shell:
 	@echo "🐘 Opening database shell..."
-	docker-compose exec postgres psql -U postgres -d execbox
+	$(DOCKER_COMPOSE) exec postgres psql -U postgres -d execbox
 
 db-logs:
-	docker-compose logs -f postgres
+	$(DOCKER_COMPOSE) logs -f postgres
 
 db-status:
 	@echo "📊 Database status:"
-	@docker-compose ps postgres 2>/dev/null || echo "Database not running. Use 'make run-devdb' to start it."
+	@$(DOCKER_COMPOSE) ps postgres 2>/dev/null || echo "Database not running. Use 'make run-devdb' to start it."
 
 # Environment Check
 check-env:
@@ -236,7 +239,7 @@ check-env:
 	@if grep -q "your-fly-api-token-here" .env; then \
 		echo "⚠️  WARNING: FLY_API_TOKEN is still set to placeholder value"; \
 	fi
-	@if docker-compose ps postgres 2>/dev/null | grep -q "Up"; then \
+	@if $(DOCKER_COMPOSE) ps postgres 2>/dev/null | grep -q "Up"; then \
 		echo "✅ Database container running"; \
 	else \
 		echo "⚠️  Database container not running. Use 'make run-devdb' to start it."; \
