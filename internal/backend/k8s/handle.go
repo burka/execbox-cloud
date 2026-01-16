@@ -274,33 +274,46 @@ func (h *Handle) SetStdin(stdin io.WriteCloser) {
 
 // SetAttachStreams connects the pod's stdout/stderr to the handle's BufferedPipes.
 // It starts goroutines to copy data from the attach streams to the BufferedPipes.
+// Either stream can be nil (e.g., when using logs API which combines stdout/stderr).
 func (h *Handle) SetAttachStreams(stdout, stderr io.Reader) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Wrap readers as ReadCloser
-	if rc, ok := stdout.(io.ReadCloser); ok {
-		h.attachStdout = rc
-	} else {
-		h.attachStdout = io.NopCloser(stdout)
-	}
+	// Handle stdout stream
+	if stdout != nil {
+		if rc, ok := stdout.(io.ReadCloser); ok {
+			h.attachStdout = rc
+		} else {
+			h.attachStdout = io.NopCloser(stdout)
+		}
 
-	if rc, ok := stderr.(io.ReadCloser); ok {
-		h.attachStderr = rc
+		// Start copying from attach stdout to BufferedPipe
+		go func() {
+			_, _ = io.Copy(h.stdout, h.attachStdout)
+			h.stdout.Finish()
+		}()
 	} else {
-		h.attachStderr = io.NopCloser(stderr)
-	}
-
-	// Start copying from attach streams to BufferedPipes
-	go func() {
-		_, _ = io.Copy(h.stdout, h.attachStdout)
+		// No stdout stream - mark as finished immediately
 		h.stdout.Finish()
-	}()
+	}
 
-	go func() {
-		_, _ = io.Copy(h.stderr, h.attachStderr)
+	// Handle stderr stream
+	if stderr != nil {
+		if rc, ok := stderr.(io.ReadCloser); ok {
+			h.attachStderr = rc
+		} else {
+			h.attachStderr = io.NopCloser(stderr)
+		}
+
+		// Start copying from attach stderr to BufferedPipe
+		go func() {
+			_, _ = io.Copy(h.stderr, h.attachStderr)
+			h.stderr.Finish()
+		}()
+	} else {
+		// No stderr stream - mark as finished immediately
 		h.stderr.Finish()
-	}()
+	}
 }
 
 // SetNetwork updates the network information.

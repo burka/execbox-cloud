@@ -167,16 +167,28 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 
 	switch state {
 	case podStateRunning:
-		// Pod is running - attach to streams
-		// Use background context for the attach to prevent cancellation when the HTTP request ends.
-		// The attach needs to remain active for the lifetime of the pod, not the request.
-		stdin, stdout, stderr, err := b.attachToPod(context.Background(), createdPod.Name, containerName, spec.TTY)
+		// Pod is running - use logs API for output (captures ALL from start) and
+		// stdin-only attach for input. This ensures no early output is lost.
+		// Note: K8s logs API combines stdout/stderr into a single stream.
+
+		// Start following logs for output (use background context - needs to outlive HTTP request)
+		logStream, err := b.followPodLogs(context.Background(), createdPod.Name, containerName)
 		if err != nil {
 			_ = b.destroyResources(ctx, sessionID)
-			return nil, fmt.Errorf("failed to attach to pod: %w", err)
+			return nil, fmt.Errorf("failed to follow pod logs: %w", err)
 		}
+
+		// Attach stdin only (use background context)
+		stdin, err := b.attachStdinOnly(context.Background(), createdPod.Name, containerName, spec.TTY)
+		if err != nil {
+			logStream.Close()
+			_ = b.destroyResources(ctx, sessionID)
+			return nil, fmt.Errorf("failed to attach stdin: %w", err)
+		}
+
 		handle.SetStdin(stdin)
-		handle.SetAttachStreams(stdout, stderr)
+		// Pass logs as stdout, nil for stderr (K8s logs combine both streams)
+		handle.SetAttachStreams(logStream, nil)
 
 	case podStateSucceeded, podStateFailed:
 		// Pod already completed - read logs instead of attaching
@@ -611,6 +623,66 @@ func (b *Backend) readPodLogs(ctx context.Context, podName, containerName string
 	// Note: K8s doesn't separate stdout/stderr in logs by default.
 	// All output goes to the same log stream.
 	return string(stdout), "", nil
+}
+
+// followPodLogs streams logs from a pod with Follow:true.
+// This captures ALL output from container start, unlike attach which only
+// captures output from the moment of attachment.
+// Returns an io.ReadCloser that streams the combined stdout/stderr.
+// Note: K8s logs API does not separate stdout/stderr - they're combined.
+func (b *Backend) followPodLogs(ctx context.Context, podName, containerName string) (io.ReadCloser, error) {
+	req := b.clientset.CoreV1().Pods(b.config.Namespace).GetLogs(podName, &corev1.PodLogOptions{
+		Container: containerName,
+		Follow:    true,
+	})
+
+	logStream, err := req.Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pod logs stream: %w", err)
+	}
+
+	return logStream, nil
+}
+
+// attachStdinOnly attaches to a pod's stdin only, without capturing stdout/stderr.
+// This is used in combination with followPodLogs to provide complete output capture
+// while still allowing stdin input.
+func (b *Backend) attachStdinOnly(ctx context.Context, podName, containerName string, tty bool) (stdin io.WriteCloser, err error) {
+	// Create the attach request - stdin only
+	req := b.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(b.config.Namespace).
+		SubResource("attach").
+		VersionedParams(&corev1.PodAttachOptions{
+			Container: containerName,
+			Stdin:     true,
+			Stdout:    false,
+			Stderr:    false,
+			TTY:       tty,
+		}, scheme.ParameterCodec)
+
+	// Create SPDY executor
+	executor, err := remotecommand.NewSPDYExecutor(b.restConfig, "POST", req.URL())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create attach executor: %w", err)
+	}
+
+	// Create pipe for stdin
+	stdinReader, stdinWriter := io.Pipe()
+
+	// Start streaming in a goroutine
+	go func() {
+		streamErr := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdin: stdinReader,
+			Tty:   tty,
+		})
+
+		stdinReader.Close()
+		_ = streamErr // Stream error is expected when pod exits
+	}()
+
+	return stdinWriter, nil
 }
 
 // Exec runs a command in a running pod.

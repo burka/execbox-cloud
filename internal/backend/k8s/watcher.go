@@ -38,6 +38,8 @@ func (b *Backend) watchPod(ctx context.Context, h *Handle, podName string) {
 			}
 
 			// Handle pod deletion (from Kill or Destroy)
+			// Note: We remove the handle here because the pod was explicitly deleted,
+			// which means no one will need to read the output anymore.
 			if event.Type == watch.Deleted {
 				h.SignalExit(execbox.ExitResult{
 					Code:  137, // SIGKILL exit code
@@ -82,8 +84,11 @@ func (b *Backend) watchPod(ctx context.Context, h *Handle, podName string) {
 					Error: exitErr,
 				})
 
-				// Remove handle from backend map to prevent memory leak
-				b.removeHandle(h.ID())
+				// Note: Do NOT remove the handle here. Clients may still want to
+				// attach and read the buffered output after the pod completes.
+				// The handle will be removed when:
+				// - The pod is explicitly deleted (Kill/Destroy)
+				// - The backend is closed
 				return
 			}
 		}
