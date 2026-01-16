@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -495,4 +496,8 @@ func (m *mockBackendHandler) StopSession(ctx context.Context, backendID string) 
 
 func (m *mockBackendHandler) DestroySession(ctx context.Context, backendID string) error {
 	return m.destroyErr
+}
+
+func (m *mockBackendHandler) Attach(ctx context.Context, sessionID string) (stdin io.WriteCloser, stdout io.Reader, stderr io.Reader, wait func() int, err error) {
+	return nil, nil, nil, nil, fmt.Errorf("attach not implemented in mock backend")
 }

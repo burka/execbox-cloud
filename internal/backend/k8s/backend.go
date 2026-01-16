@@ -168,7 +168,9 @@ func (b *Backend) Run(ctx context.Context, spec execbox.Spec) (execbox.Handle, e
 	switch state {
 	case podStateRunning:
 		// Pod is running - attach to streams
-		stdin, stdout, stderr, err := b.attachToPod(ctx, createdPod.Name, containerName, spec.TTY)
+		// Use background context for the attach to prevent cancellation when the HTTP request ends.
+		// The attach needs to remain active for the lifetime of the pod, not the request.
+		stdin, stdout, stderr, err := b.attachToPod(context.Background(), createdPod.Name, containerName, spec.TTY)
 		if err != nil {
 			_ = b.destroyResources(ctx, sessionID)
 			return nil, fmt.Errorf("failed to attach to pod: %w", err)
@@ -262,16 +264,17 @@ func (b *Backend) waitForPodReady(ctx context.Context, podName string, timeout t
 
 // Attach reconnects to an existing pod.
 func (b *Backend) Attach(ctx context.Context, id string) (execbox.Handle, error) {
-	// Check local handles first
+	// Check local handles first - return existing handle if available
+	// The handle's BufferedPipes should have captured all output
 	b.mu.RLock()
-	handle, ok := b.handles[id]
+	existingHandle, ok := b.handles[id]
 	b.mu.RUnlock()
 
-	if ok && handle != nil {
-		return handle, nil
+	if ok && existingHandle != nil {
+		return existingHandle, nil
 	}
 
-	// Try to find pod by label selector
+	// No existing handle - try to find pod by label selector
 	labelSelector := fmt.Sprintf("execbox.io/session-id=%s", id)
 	pods, err := b.clientset.CoreV1().Pods(b.config.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -297,7 +300,7 @@ func (b *Backend) Attach(ctx context.Context, id string) (execbox.Handle, error)
 		TTY:     pod.Spec.Containers[0].TTY,
 	}
 
-	handle = NewHandle(id, pod.Name, b.config.Namespace, spec, b.clientset, b.restConfig)
+	handle := NewHandle(id, pod.Name, b.config.Namespace, spec, b.clientset, b.restConfig)
 
 	// Attach to pod streams
 	containerName := pod.Spec.Containers[0].Name

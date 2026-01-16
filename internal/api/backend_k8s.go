@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/burka/execbox-cloud/internal/backend/k8s"
 	"github.com/burka/execbox/pkg/execbox"
@@ -155,6 +156,31 @@ func (b *K8sBackend) DestroySession(ctx context.Context, sessionID string) error
 		return fmt.Errorf("failed to destroy kubernetes pod: %w", err)
 	}
 	return nil
+}
+
+// Attach attaches to a running session and returns I/O streams.
+func (b *K8sBackend) Attach(ctx context.Context, sessionID string) (stdin io.WriteCloser, stdout io.Reader, stderr io.Reader, wait func() int, err error) {
+	// Call the underlying k8s backend's Attach method
+	handle, err := b.backend.Attach(ctx, sessionID)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to attach to kubernetes pod: %w", err)
+	}
+
+	// Extract streams from the handle
+	stdin = handle.Stdin()
+	stdout = handle.Stdout()
+	stderr = handle.Stderr()
+
+	// Create wait function that blocks until exit and returns exit code
+	wait = func() int {
+		// Wait for the handle to complete
+		result := <-handle.Wait()
+
+		// Return the exit code
+		return result.Code
+	}
+
+	return stdin, stdout, stderr, wait, nil
 }
 
 // Name returns "kubernetes".

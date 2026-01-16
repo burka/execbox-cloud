@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -73,6 +74,11 @@ type Backend interface {
 
 	// DestroySession permanently destroys a session and releases all resources.
 	DestroySession(ctx context.Context, sessionID string) error
+
+	// AttachSession returns I/O streams for a running session.
+	// Returns stdin writer, stdout reader, stderr reader, and a wait function.
+	// The wait function blocks until the session exits and returns the exit code.
+	Attach(ctx context.Context, sessionID string) (stdin io.WriteCloser, stdout io.Reader, stderr io.Reader, wait func() int, err error)
 
 	// Name returns the backend name (e.g., "fly", "kubernetes").
 	Name() string

@@ -155,33 +155,8 @@ func TestUpgrader_CheckOrigin(t *testing.T) {
 	}
 }
 
-func TestPlaceholderStreams(t *testing.T) {
-	// Test the placeholder I/O streams
-	stdin := &nopWriteCloser{}
-	n, err := stdin.Write([]byte("test"))
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if n != 4 {
-		t.Errorf("expected 4 bytes written, got %d", n)
-	}
-	if err := stdin.Close(); err != nil {
-		t.Errorf("unexpected error on close: %v", err)
-	}
-
-	stdout := &nopReadCloser{}
-	buf := make([]byte, 10)
-	n, err = stdout.Read(buf)
-	if n != 0 {
-		t.Errorf("expected 0 bytes read, got %d", n)
-	}
-	if err == nil {
-		t.Error("expected EOF error")
-	}
-	if err := stdout.Close(); err != nil {
-		t.Errorf("unexpected error on close: %v", err)
-	}
-}
+// TestPlaceholderStreams was removed - placeholder streams no longer exist
+// The attach functionality now uses real backend streams
 
 // Integration test demonstrating the WebSocket attach flow
 func TestWebSocketAttachFlow(t *testing.T) {
@@ -206,18 +181,18 @@ func TestNewHandlers_Integration(t *testing.T) {
 	var _ func(http.ResponseWriter, *http.Request, string, *db.APIKey) = handlers.AttachSession
 }
 
-// Test the handlers structure
+// TestHandlersStructure was simplified - getMachineIOStreams was removed
+// The attach functionality now uses backend.Attach directly
 func TestHandlersStructure(t *testing.T) {
-	// Create handlers with nil dependencies
+	// Create handlers with nil dependencies - verify struct can be instantiated
 	h := &Handlers{
 		db:  nil,
 		fly: nil,
 	}
 
-	// Verify we can call getMachineIOStreams (even though it returns placeholders)
-	stdin, stdout, stderr := h.getMachineIOStreams(&db.Session{})
-	if stdin == nil || stdout == nil || stderr == nil {
-		t.Error("expected non-nil I/O streams")
+	// Verify db field is set correctly
+	if h.db != nil {
+		t.Error("expected db to be nil")
 	}
 }
 
@@ -272,11 +247,6 @@ func TestHandlers_HasRequiredMethods(t *testing.T) {
 
 	// Compile-time verification that these methods exist
 	_ = h.AttachSession
-	_ = h.getMachineIOStreams
-	_ = h.handleBinaryProtocol
-	_ = h.handleJSONProtocol
-	_ = h.handleBinaryWSInput
-	_ = h.handleBinaryWSOutputNoCancel
 	_ = h.sendBinaryError
 	_ = h.sendBinaryExit
 	_ = h.writeBinaryMessage

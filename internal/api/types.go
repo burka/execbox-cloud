@@ -28,10 +28,14 @@ type FileSpec struct {
 // Resources defines resource limits for a session.
 // This type is used both in API requests and backend configurations.
 // It consolidates the previous Resources (API) and SessionResources (backend) types.
+// Extra fields (computePower, storageMB, timeout) are accepted for CLI compatibility.
 type Resources struct {
-	CPUMillis int `json:"cpuMillis,omitempty" doc:"CPU limit in millicores (1000 = 1 CPU core)" example:"1000" minimum:"100" maximum:"8000"`
-	MemoryMB  int `json:"memoryMB,omitempty" doc:"Memory limit in MB" example:"512" minimum:"128" maximum:"8192"`
-	TimeoutMs int `json:"timeoutMs,omitempty" doc:"Timeout in milliseconds" example:"60000" minimum:"1000" maximum:"300000"`
+	CPUMillis    int    `json:"cpuMillis,omitempty" doc:"CPU limit in millicores (1000 = 1 CPU core)" example:"1000" minimum:"100" maximum:"8000"`
+	MemoryMB     int    `json:"memoryMB,omitempty" doc:"Memory limit in MB" example:"512" minimum:"128" maximum:"8192"`
+	TimeoutMs    int    `json:"timeoutMs,omitempty" doc:"Timeout in milliseconds" example:"60000" minimum:"1000" maximum:"300000"`
+	ComputePower int    `json:"computePower,omitempty" doc:"Compute power units (legacy, use cpuMillis)" hidden:"true"`
+	StorageMB    int    `json:"storageMB,omitempty" doc:"Storage limit in MB (reserved for future use)" hidden:"true"`
+	Timeout      string `json:"timeout,omitempty" doc:"Timeout as duration string (legacy, use timeoutMs)" hidden:"true"`
 }
 
 // PortSpec defines a port to expose from the container.

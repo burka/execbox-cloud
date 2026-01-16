@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/burka/execbox-cloud/internal/backend/fly"
@@ -130,6 +131,11 @@ func (b *FlyBackend) DestroySession(ctx context.Context, sessionID string) error
 		return fmt.Errorf("failed to destroy fly machine: %w", err)
 	}
 	return nil
+}
+
+// Attach is not currently supported for the Fly backend.
+func (b *FlyBackend) Attach(ctx context.Context, sessionID string) (stdin io.WriteCloser, stdout io.Reader, stderr io.Reader, wait func() int, err error) {
+	return nil, nil, nil, nil, fmt.Errorf("attach not supported for fly backend")
 }
 
 // Name returns "fly".

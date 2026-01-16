@@ -201,20 +201,10 @@ func registerAuthenticatedRoutes(humaAPI huma.API, router *chi.Mux, services *Se
 		Middlewares:   huma.Middlewares{authMiddleware},
 	}, services.Session.KillSession)
 
-	// WebSocket endpoint - this needs special handling (not a standard huma handler)
-	// It's documented in OpenAPI but implemented via chi directly
-	huma.Register(humaAPI, huma.Operation{
-		OperationID: "attachSession",
-		Method:      "GET",
-		Path:        "/v1/sessions/{id}/attach",
-		Summary:     "Attach to session I/O via WebSocket",
-		Description: "Upgrade to WebSocket for bidirectional stdin/stdout/stderr streaming.\n\n**Protocol:** JSON messages with format `{\"type\": \"...\", \"data\": \"...\"}`\n\n**Client → Server:** `stdin` (base64 data), `stdinClose`, `resize` (cols/rows)\n\n**Server → Client:** `stdout`, `stderr` (base64 data), `exit` (code), `error` (msg)",
-		Tags:        []string{"Sessions"},
-		Security:    securityRequirement,
-	}, func(ctx gocontext.Context, input *AttachSessionInput) (*HealthCheckOutput, error) {
-		// This is a placeholder - actual WebSocket handling is done via chi middleware
-		return nil, nil
-	})
+	// Note: WebSocket attach endpoint (/v1/sessions/{id}/attach) is registered
+	// via chi directly in server.go because WebSocket upgrades don't work well
+	// with huma's response handling. OpenAPI docs for it should be added manually
+	// or via a separate schema definition.
 }
 
 // humaAuthMiddleware creates a huma middleware that validates the API key

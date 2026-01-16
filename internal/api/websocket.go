@@ -45,7 +45,7 @@ func (w *wsWriter) WriteMessage(messageType int, data []byte) error {
 // Protocol:
 //   - Query parameter: protocol=binary|json (default: binary)
 //   - Authentication: Bearer token (API key) in Authorization header
-//   - Bidirectional streaming between client and Fly machine
+//   - Bidirectional streaming between client and backend
 //
 // Flow:
 //  1. Extract session ID from path
@@ -53,18 +53,62 @@ func (w *wsWriter) WriteMessage(messageType int, data []byte) error {
 //  3. Verify session is running
 //  4. Upgrade to WebSocket
 //  5. Set up 4 goroutines for bidirectional I/O:
-//     - Goroutine 1: WebSocket → stdin (client input to machine)
-//     - Goroutine 2: stdout → WebSocket (machine output to client)
-//     - Goroutine 3: stderr → WebSocket (machine errors to client)
+//     - Goroutine 1: WebSocket → stdin (client input to backend)
+//     - Goroutine 2: stdout → WebSocket (backend output to client)
+//     - Goroutine 3: stderr → WebSocket (backend errors to client)
 //     - Goroutine 4: Wait for exit, send exit message
 func (h *Handlers) AttachSession(w http.ResponseWriter, r *http.Request, sessionID string, apiKey *db.APIKey) {
-	// Feature not yet implemented - return clear error
-	// TODO: Implement actual WebSocket attach when Fly machine I/O is ready
-	WriteError(w, fmt.Errorf("session attach not yet implemented"), http.StatusNotImplemented, CodeNotImplemented)
+	ctx := r.Context()
+
+	// 1. Look up session in database
+	session, err := h.db.GetSession(ctx, sessionID)
+	if err != nil {
+		WriteError(w, fmt.Errorf("session not found: %w", err), http.StatusNotFound, CodeNotFound)
+		return
+	}
+
+	// 2. Verify ownership
+	if session.APIKeyID != apiKey.ID {
+		WriteError(w, fmt.Errorf("access denied"), http.StatusForbidden, CodeUnauthorized)
+		return
+	}
+
+	// 3. Verify session status
+	if session.Status != "running" && session.Status != "pending" {
+		WriteError(w, fmt.Errorf("session not running: status=%s", session.Status), http.StatusConflict, CodeConflict)
+		return
+	}
+
+	// 4. Get backend ID
+	backendID := session.GetBackendID()
+	if backendID == "" {
+		WriteError(w, fmt.Errorf("session has no backend ID"), http.StatusInternalServerError, CodeInternal)
+		return
+	}
+
+	// 5. Upgrade to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		// upgrader.Upgrade writes the error response
+		return
+	}
+	defer conn.Close()
+
+	writer := &wsWriter{conn: conn}
+
+	// 6. Attach to backend
+	stdin, stdout, stderr, wait, err := h.backend.Attach(ctx, backendID)
+	if err != nil {
+		h.sendBinaryError(writer, fmt.Sprintf("failed to attach to session: %v", err))
+		return
+	}
+
+	// 7. Handle bidirectional I/O using binary protocol
+	h.handleBinaryProtocol(ctx, writer, conn, stdin, stdout, stderr, wait)
 }
 
 // handleBinaryProtocol manages bidirectional I/O using binary protocol
-func (h *Handlers) handleBinaryProtocol(ctx context.Context, writer *wsWriter, conn *websocket.Conn, session *db.Session) {
+func (h *Handlers) handleBinaryProtocol(ctx context.Context, writer *wsWriter, conn *websocket.Conn, stdin io.WriteCloser, stdout io.Reader, stderr io.Reader, wait func() int) {
 	// Use separate context for input (can be cancelled) vs output (must complete)
 	inputCtx, cancelInput := context.WithCancel(ctx)
 	defer cancelInput()
@@ -72,27 +116,23 @@ func (h *Handlers) handleBinaryProtocol(ctx context.Context, writer *wsWriter, c
 	var wg sync.WaitGroup
 	var outputWg sync.WaitGroup
 
-	// TODO: Get actual machine I/O streams from Fly.io
-	// For now, using placeholder streams
-	stdinWriter, stdoutReader, stderrReader := h.getMachineIOStreams(session)
-
-	// Goroutine 1: WebSocket → stdin (read WS, write to machine)
+	// Goroutine 1: WebSocket → stdin (read WS, write to backend)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if stdinWriter != nil {
-			defer stdinWriter.Close()
+		if stdin != nil {
+			defer stdin.Close()
 		}
-		h.handleBinaryWSInput(inputCtx, conn, stdinWriter, writer)
+		h.handleBinaryWSInput(inputCtx, conn, stdin, writer)
 	}()
 
-	// Goroutine 2: stdout → WebSocket (read machine, write WS)
+	// Goroutine 2: stdout → WebSocket (read backend, write WS)
 	wg.Add(1)
 	outputWg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer outputWg.Done()
-		h.handleBinaryWSOutputNoCancel(writer, stdoutReader, proto.MessageTypeStdout)
+		h.handleBinaryWSOutputNoCancel(writer, stdout, proto.MessageTypeStdout)
 	}()
 
 	// Goroutine 3: stderr → WebSocket
@@ -101,19 +141,20 @@ func (h *Handlers) handleBinaryProtocol(ctx context.Context, writer *wsWriter, c
 	go func() {
 		defer wg.Done()
 		defer outputWg.Done()
-		h.handleBinaryWSOutputNoCancel(writer, stderrReader, proto.MessageTypeStderr)
+		h.handleBinaryWSOutputNoCancel(writer, stderr, proto.MessageTypeStderr)
 	}()
 
 	// Goroutine 4: Wait for exit, send exit message
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// TODO: Wait for actual machine exit
-		// For now, wait for output to complete
+		// Wait for output to complete
 		outputWg.Wait()
 
+		// Wait for session to exit and get exit code
+		exitCode := wait()
+
 		// Send exit message
-		exitCode := 0 // TODO: Get actual exit code from machine
 		h.sendBinaryExit(writer, exitCode)
 		cancelInput()
 	}()
@@ -122,23 +163,6 @@ func (h *Handlers) handleBinaryProtocol(ctx context.Context, writer *wsWriter, c
 	wg.Wait()
 }
 
-// handleJSONProtocol manages bidirectional I/O using JSON protocol (future)
-func (h *Handlers) handleJSONProtocol(ctx context.Context, writer *wsWriter, conn *websocket.Conn, session *db.Session) {
-	// JSON protocol support can be added later
-	// For now, send error message
-	h.sendBinaryError(writer, "JSON protocol not yet implemented, use protocol=binary")
-}
-
-// getMachineIOStreams returns I/O streams for the Fly machine
-// TODO: Replace with actual Fly.io machine connection
-func (h *Handlers) getMachineIOStreams(session *db.Session) (io.WriteCloser, io.ReadCloser, io.ReadCloser) {
-	// Placeholder streams - replace with actual Fly machine I/O
-	// When Fly integration is ready, this will connect to the machine using session.FlyMachineID
-	stdin := &nopWriteCloser{}
-	stdout := &nopReadCloser{}
-	stderr := &nopReadCloser{}
-	return stdin, stdout, stderr
-}
 
 // handleBinaryWSInput reads binary WebSocket messages and writes to machine stdin
 func (h *Handlers) handleBinaryWSInput(ctx context.Context, conn *websocket.Conn, stdin io.WriteCloser, writer *wsWriter) {
@@ -240,16 +264,3 @@ func (h *Handlers) writeBinaryMessage(writer *wsWriter, msg proto.BinaryMessage)
 
 	return writer.WriteMessage(websocket.BinaryMessage, data)
 }
-
-// Placeholder types for machine I/O streams
-// TODO: Remove when Fly.io integration is ready
-
-type nopWriteCloser struct{}
-
-func (n *nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
-func (n *nopWriteCloser) Close() error                { return nil }
-
-type nopReadCloser struct{}
-
-func (n *nopReadCloser) Read(p []byte) (int, error) { return 0, io.EOF }
-func (n *nopReadCloser) Close() error               { return nil }

@@ -120,12 +120,13 @@ func TestOpenAPIHasAllEndpoints(t *testing.T) {
 	}
 
 	// Expected endpoints
+	// Note: /v1/sessions/{id}/attach is handled via chi directly (WebSocket upgrade)
+	// and is not registered through huma, so it won't appear in the OpenAPI spec.
 	expectedEndpoints := []string{
 		"/health",
 		"/v1/sessions",
 		"/v1/sessions/{id}",
 		"/v1/sessions/{id}/stop",
-		"/v1/sessions/{id}/attach",
 		"/v1/quota-requests",
 	}
 
