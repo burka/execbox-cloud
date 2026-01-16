@@ -254,10 +254,12 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create session in database
+	// Note: We use FlyMachineID for backward compatibility until backend_id column migration
 	session := &db.Session{
 		ID:           sessionID,
 		APIKeyID:     apiKeyID,
 		BackendID:    &backendID,
+		FlyMachineID: &backendID, // Also set for DB compatibility
 		Image:        resolvedImage,
 		Command:      req.Command,
 		Env:          req.Env,

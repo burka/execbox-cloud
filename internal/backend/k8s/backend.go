@@ -10,6 +10,7 @@ import (
 	"github.com/burka/execbox/pkg/execbox"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -488,10 +489,32 @@ func (b *Backend) Destroy(ctx context.Context, id string) error {
 }
 
 // destroyResources removes all resources associated with a session.
-func (b *Backend) destroyResources(ctx context.Context, sessionID string) error {
-	labelSelector := fmt.Sprintf("execbox.io/session-id=%s", sessionID)
+// The id can be either a session ID (UUID) or a pod name.
+func (b *Backend) destroyResources(ctx context.Context, id string) error {
+	labelSelector := fmt.Sprintf("execbox.io/session-id=%s", id)
 
-	// Delete pods
+	// First try to find pods by label selector
+	pods, err := b.clientset.CoreV1().Pods(b.config.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	// If no pods found by label, try to delete by pod name directly
+	if len(pods.Items) == 0 {
+		// Try to delete pod by name (id might be a pod name)
+		err := b.clientset.CoreV1().Pods(b.config.Namespace).Delete(ctx, id, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete pod by name: %w", err)
+		}
+		// Also try to delete associated ConfigMaps by naming convention
+		cmName := fmt.Sprintf("execbox-files-%s", id)
+		_ = b.clientset.CoreV1().ConfigMaps(b.config.Namespace).Delete(ctx, cmName, metav1.DeleteOptions{})
+		return nil
+	}
+
+	// Delete pods by label selector
 	if err := b.clientset.CoreV1().Pods(b.config.Namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	}); err != nil {

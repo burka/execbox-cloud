@@ -240,14 +240,29 @@ func SetupOpenAPI(router *chi.Mux) huma.API {
 		humaAPI.OpenAPI().Components.SecuritySchemes[name] = scheme
 	}
 
-	// Register OpenAPI spec endpoints (unauthenticated - for documentation)
-	router.Get("/openapi.json", handleOpenAPIJSON(humaAPI))
-	router.Get("/openapi.yaml", handleOpenAPIYAML(humaAPI))
+	// Register huma operations for OpenAPI spec generation only.
+	// We use a separate router to avoid route conflicts with the actual chi handlers.
+	specRouter := chi.NewRouter()
+	specConfig := huma.DefaultConfig("Execbox Cloud API", "1.0.0")
+	specConfig.Info = OpenAPIInfo().Info
+	specConfig.Tags = OpenAPIInfo().Tags
+	specConfig.Servers = OpenAPIInfo().Servers
+	specAPI := humachi.New(specRouter, specConfig)
 
-	// Register huma operations for OpenAPI documentation
-	// Note: huma handlers are registered but chi handlers will take precedence
-	// This is intentional - huma provides the OpenAPI spec, chi provides the actual handling
-	RegisterHumaRoutes(humaAPI)
+	// Initialize Components.SecuritySchemes for spec API
+	if specAPI.OpenAPI().Components.SecuritySchemes == nil {
+		specAPI.OpenAPI().Components.SecuritySchemes = make(map[string]*huma.SecurityScheme)
+	}
+	for name, scheme := range SecuritySchemes() {
+		specAPI.OpenAPI().Components.SecuritySchemes[name] = scheme
+	}
+
+	// Register huma routes on the spec-only router (not the main router)
+	RegisterHumaRoutes(specAPI)
+
+	// Register OpenAPI spec endpoints on the main router (unauthenticated)
+	router.Get("/openapi.json", handleOpenAPIJSON(specAPI))
+	router.Get("/openapi.yaml", handleOpenAPIYAML(specAPI))
 
 	return humaAPI
 }

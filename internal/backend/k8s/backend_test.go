@@ -188,9 +188,19 @@ func TestBackend_destroyResources(t *testing.T) {
 
 // TestBackend_destroyResources_Error tests error handling in destroyResources.
 func TestBackend_destroyResources_Error(t *testing.T) {
-	clientset := fake.NewSimpleClientset()
+	// Create clientset with a pod that matches our session ID
+	existingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "execbox-test",
+			Namespace: "execbox",
+			Labels: map[string]string{
+				"execbox.io/session-id": "test-session",
+			},
+		},
+	}
+	clientset := fake.NewSimpleClientset(existingPod)
 
-	// Inject an error for pod deletion
+	// Inject an error for pod delete-collection (used when pods are found by label)
 	clientset.PrependReactor("delete-collection", "pods", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
 		return true, nil, apierrors.NewInternalError(errors.New("simulated pod deletion error"))
 	})
