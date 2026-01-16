@@ -57,8 +57,11 @@ func RegisterRoutes(router *chi.Mux, services *Services, rateLimiter *RateLimite
 		Description: "Returns server health status. Does not require authentication.",
 		Tags:        []string{"Health"},
 	}, func(ctx gocontext.Context, input *HealthCheckInput) (*HealthCheckOutput, error) {
-		if err := services.DB.Health(ctx); err != nil {
-			return nil, huma.Error503ServiceUnavailable(fmt.Sprintf("database health check failed: %v", err))
+		// When DB is nil, we're in spec-generation mode - return success for type extraction
+		if services.DB != nil {
+			if err := services.DB.Health(ctx); err != nil {
+				return nil, huma.Error503ServiceUnavailable(fmt.Sprintf("database health check failed: %v", err))
+			}
 		}
 		return &HealthCheckOutput{
 			Body: struct {
