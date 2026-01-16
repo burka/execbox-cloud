@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/burka/execbox-cloud/internal/backend/fly"
+	"github.com/burka/execbox-cloud/internal/backend/k8s"
 	"github.com/burka/execbox-cloud/internal/db"
 	"github.com/burka/execbox-cloud/static"
 	"github.com/go-chi/chi/v5"
@@ -18,7 +19,8 @@ type Server struct {
 	router      *chi.Mux
 	handlers    *Handlers
 	db          *db.Client
-	fly         *fly.Client
+	fly         *fly.Client // Deprecated: Use backend instead
+	backend     Backend
 	rateLimiter *RateLimiter
 	config      *Config
 }
@@ -27,10 +29,22 @@ type Server struct {
 type Config struct {
 	Port        string
 	DatabaseURL string
-	FlyToken    string
-	FlyOrg      string
-	FlyAppName  string
 	LogLevel    string
+
+	// Backend selection
+	Backend string // "fly" or "kubernetes"
+
+	// Fly.io config (used when Backend="fly")
+	FlyToken   string
+	FlyOrg     string
+	FlyAppName string
+
+	// Kubernetes config (used when Backend="kubernetes")
+	K8sKubeconfig     string
+	K8sNamespace      string
+	K8sServiceAccount string
+	K8sRegistry       string
+	K8sImageTTL       string
 }
 
 // NewServer creates and configures a new server instance.
@@ -52,20 +66,48 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// 3. Create Fly client
-	flyClient := fly.New(cfg.FlyToken, cfg.FlyOrg, cfg.FlyAppName)
+	// 3. Create backend based on configuration
+	var backend Backend
+	var flyClient *fly.Client
 
-	// 4. Create handlers
-	handlers := NewHandlers(dbClient, flyClient)
+	switch cfg.Backend {
+	case "fly":
+		slog.Info("initializing Fly.io backend")
+		flyClient = fly.New(cfg.FlyToken, cfg.FlyOrg, cfg.FlyAppName)
+		backend = NewFlyBackend(flyClient)
 
-	// 5. Set up image builder and cache
-	builder := fly.NewBuilder(flyClient, cfg.FlyAppName)
-	cache := fly.NewDBBuildCache(
-		dbClient.GetImageCache,
-		dbClient.PutImageCache,
-		dbClient.TouchImageCache,
-	)
-	handlers.SetBuilder(builder, cache)
+	case "kubernetes":
+		slog.Info("initializing Kubernetes backend",
+			"namespace", cfg.K8sNamespace,
+			"registry", cfg.K8sRegistry,
+		)
+		k8sBackend, err := k8s.NewBackend(k8s.BackendConfig{
+			Kubeconfig:     cfg.K8sKubeconfig,
+			Namespace:      cfg.K8sNamespace,
+			ServiceAccount: cfg.K8sServiceAccount,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create kubernetes backend: %w", err)
+		}
+		backend = NewK8sBackend(k8sBackend)
+
+	default:
+		return nil, fmt.Errorf("unknown backend: %s", cfg.Backend)
+	}
+
+	// 4. Create handlers with backend
+	handlers := NewHandlers(dbClient, backend)
+
+	// 5. Set up image builder and cache (Fly-specific for now)
+	if flyClient != nil {
+		builder := fly.NewBuilder(flyClient, cfg.FlyAppName)
+		cache := fly.NewDBBuildCache(
+			dbClient.GetImageCache,
+			dbClient.PutImageCache,
+			dbClient.TouchImageCache,
+		)
+		handlers.SetBuilder(builder, cache)
+	}
 
 	// 6. Create rate limiter
 	rateLimiter := NewRateLimiter()
@@ -85,6 +127,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		handlers:    handlers,
 		db:          dbClient,
 		fly:         flyClient,
+		backend:     backend,
 		rateLimiter: rateLimiter,
 		config:      cfg,
 	}

@@ -196,9 +196,9 @@ func TestNewHandlers_Integration(t *testing.T) {
 	// This test verifies that NewHandlers from handlers.go works correctly
 	// with the websocket code
 
-	handlers := NewHandlers(nil, nil)
+	handlers := NewHandlersWithFly(nil, nil)
 	if handlers == nil {
-		t.Fatal("NewHandlers returned nil")
+		t.Fatal("NewHandlersWithFly returned nil")
 	}
 
 	// Verify handlers has the AttachSession method
@@ -285,7 +285,7 @@ func TestHandlers_HasRequiredMethods(t *testing.T) {
 // Test that fly client is available in handlers
 func TestHandlers_FlyClient(t *testing.T) {
 	flyClient := fly.New("test-token", "test-org", "test-app")
-	handlers := NewHandlers(nil, flyClient)
+	handlers := NewHandlersWithFly(nil, flyClient)
 
 	if handlers == nil {
 		t.Fatal("handlers is nil")

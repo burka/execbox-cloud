@@ -1,0 +1,25 @@
+---
+# Optional: ResourceQuota to limit resource usage in the namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: execbox-quota
+  namespace: execbox
+  labels:
+    app.kubernetes.io/name: execbox
+spec:
+  hard:
+    # Limit total pods
+    pods: "50"
+    # Limit total CPU requests
+    requests.cpu: "10"
+    # Limit total memory requests
+    requests.memory: 20Gi
+    # Limit total CPU limits
+    limits.cpu: "20"
+    # Limit total memory limits
+    limits.memory: 40Gi
+    # Limit ConfigMaps (used for build files)
+    configmaps: "100"
+    # Limit PVCs
+    persistentvolumeclaims: "20"

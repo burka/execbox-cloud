@@ -15,6 +15,7 @@ import (
 )
 
 // FlyClient defines the Fly.io operations required by handlers.
+// Deprecated: Use Backend interface instead for new code.
 type FlyClient interface {
 	CreateMachine(ctx context.Context, config *fly.MachineConfig) (*fly.Machine, error)
 	StopMachine(ctx context.Context, machineID string) error
@@ -29,13 +30,23 @@ type ImageBuilder interface {
 // Handlers holds the HTTP request handlers and their dependencies.
 type Handlers struct {
 	db      DBClient
-	fly     FlyClient
+	fly     FlyClient // Deprecated: Use backend instead
+	backend Backend   // Generic backend (Fly or K8s)
 	builder ImageBuilder
 	cache   fly.BuildCache
 }
 
-// NewHandlers creates a new Handlers instance with the provided database and Fly clients.
-func NewHandlers(dbClient DBClient, flyClient FlyClient) *Handlers {
+// NewHandlers creates a new Handlers instance with the provided database and backend.
+func NewHandlers(dbClient DBClient, backend Backend) *Handlers {
+	return &Handlers{
+		db:      dbClient,
+		backend: backend,
+	}
+}
+
+// NewHandlersWithFly creates a new Handlers instance with the Fly client directly.
+// Deprecated: Use NewHandlers with Backend interface instead.
+func NewHandlersWithFly(dbClient DBClient, flyClient FlyClient) *Handlers {
 	return &Handlers{
 		db:  dbClient,
 		fly: flyClient,
@@ -189,25 +200,64 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build Fly machine configuration with resolved image
-	machineConfig := buildMachineConfig(&req)
-	machineConfig.Image = resolvedImage
-
-	// Create Fly machine
-	machine, err := h.fly.CreateMachine(ctx, machineConfig)
-	if err != nil {
-		WriteError(w, fmt.Errorf("%w: failed to create machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
-		return
-	}
-
 	// Build ports from request
 	ports := buildPorts(req.Ports)
+
+	// Create session using backend interface or legacy Fly client
+	var backendID string
+	var networkInfo *NetworkInfo
+
+	if h.backend != nil {
+		// Use generic Backend interface
+		config := buildCreateSessionConfig(&req, resolvedImage)
+		backendSession, backendNetwork, err := h.backend.CreateSession(ctx, config)
+		if err != nil {
+			WriteError(w, fmt.Errorf("%w: failed to create session: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+		backendID = backendSession.BackendID
+
+		// Convert backend network info to API response format
+		if backendNetwork != nil && len(req.Ports) > 0 && req.Network != "" && req.Network != "none" {
+			networkInfo = &NetworkInfo{
+				Mode:  backendNetwork.Mode,
+				Host:  backendNetwork.Host,
+				Ports: make(map[string]PortInfo),
+			}
+			for containerPort, portInfo := range backendNetwork.Ports {
+				portKey := fmt.Sprintf("%d", containerPort)
+				networkInfo.Ports[portKey] = PortInfo{
+					HostPort: portInfo.HostPort,
+					URL:      portInfo.URL,
+				}
+			}
+		}
+	} else if h.fly != nil {
+		// Legacy: Use Fly client directly
+		machineConfig := buildMachineConfig(&req)
+		machineConfig.Image = resolvedImage
+
+		machine, err := h.fly.CreateMachine(ctx, machineConfig)
+		if err != nil {
+			WriteError(w, fmt.Errorf("%w: failed to create machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+			return
+		}
+		backendID = machine.ID
+
+		// Build network info for Fly
+		if len(req.Ports) > 0 && req.Network != "" && req.Network != "none" {
+			networkInfo = buildNetworkInfo(req.Network, ports, machine)
+		}
+	} else {
+		WriteError(w, fmt.Errorf("%w: no backend configured", ErrInternal), http.StatusInternalServerError, CodeInternal)
+		return
+	}
 
 	// Create session in database
 	session := &db.Session{
 		ID:           sessionID,
 		APIKeyID:     apiKeyID,
-		FlyMachineID: &machine.ID,
+		BackendID:    &backendID,
 		Image:        resolvedImage,
 		Command:      req.Command,
 		Env:          req.Env,
@@ -231,9 +281,9 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: session.CreatedAt.Format(time.RFC3339),
 	}
 
-	// Add network info if ports are specified
-	if len(req.Ports) > 0 && req.Network != "" && req.Network != "none" {
-		response.Network = buildNetworkInfo(req.Network, ports, machine)
+	// Add network info if available
+	if networkInfo != nil {
+		response.Network = networkInfo
 	}
 
 	_ = WriteJSON(w, response, http.StatusCreated)
@@ -304,11 +354,19 @@ func (h *Handlers) StopSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop Fly machine if it exists
-	if session.FlyMachineID != nil {
-		if err := h.fly.StopMachine(ctx, *session.FlyMachineID); err != nil {
-			WriteError(w, fmt.Errorf("%w: failed to stop machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
-			return
+	// Stop the backend session
+	backendID := session.GetBackendID()
+	if backendID != "" {
+		if h.backend != nil {
+			if err := h.backend.StopSession(ctx, backendID); err != nil {
+				WriteError(w, fmt.Errorf("%w: failed to stop session: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+				return
+			}
+		} else if h.fly != nil {
+			if err := h.fly.StopMachine(ctx, backendID); err != nil {
+				WriteError(w, fmt.Errorf("%w: failed to stop machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+				return
+			}
 		}
 	}
 
@@ -343,11 +401,19 @@ func (h *Handlers) KillSession(w http.ResponseWriter, r *http.Request) {
 		return // Error already written
 	}
 
-	// Destroy Fly machine if it exists
-	if session.FlyMachineID != nil {
-		if err := h.fly.DestroyMachine(ctx, *session.FlyMachineID); err != nil {
-			WriteError(w, fmt.Errorf("%w: failed to destroy machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
-			return
+	// Destroy the backend session
+	backendID := session.GetBackendID()
+	if backendID != "" {
+		if h.backend != nil {
+			if err := h.backend.DestroySession(ctx, backendID); err != nil {
+				WriteError(w, fmt.Errorf("%w: failed to destroy session: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+				return
+			}
+		} else if h.fly != nil {
+			if err := h.fly.DestroyMachine(ctx, backendID); err != nil {
+				WriteError(w, fmt.Errorf("%w: failed to destroy machine: %v", ErrInternal, err), http.StatusInternalServerError, CodeInternal)
+				return
+			}
 		}
 	}
 
@@ -429,6 +495,55 @@ func buildMachineConfig(req *CreateSessionRequest) *fly.MachineConfig {
 			})
 		}
 		config.Services = services
+	}
+
+	return config
+}
+
+// buildCreateSessionConfig converts a CreateSessionRequest to a generic CreateSessionConfig.
+func buildCreateSessionConfig(req *CreateSessionRequest, resolvedImage string) *CreateSessionConfig {
+	config := &CreateSessionConfig{
+		Image:   resolvedImage,
+		Command: req.Command,
+		Env:     req.Env,
+		WorkDir: req.WorkDir,
+		Network: req.Network,
+		Setup:   req.Setup,
+	}
+
+	// Add resources
+	if req.Resources != nil {
+		config.Resources = &SessionResources{
+			CPUMillis: req.Resources.CPUMillis,
+			MemoryMB:  req.Resources.MemoryMB,
+			TimeoutMs: req.Resources.TimeoutMs,
+		}
+	}
+
+	// Add ports
+	if len(req.Ports) > 0 {
+		config.Ports = make([]SessionPort, 0, len(req.Ports))
+		for _, port := range req.Ports {
+			protocol := port.Protocol
+			if protocol == "" {
+				protocol = "tcp"
+			}
+			config.Ports = append(config.Ports, SessionPort{
+				Container: port.Container,
+				Protocol:  protocol,
+			})
+		}
+	}
+
+	// Add files
+	if len(req.Files) > 0 {
+		config.Files = make([]SessionFile, 0, len(req.Files))
+		for _, file := range req.Files {
+			config.Files = append(config.Files, SessionFile{
+				Path:    file.Path,
+				Content: []byte(file.Content),
+			})
+		}
 	}
 
 	return config

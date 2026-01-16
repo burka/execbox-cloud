@@ -116,9 +116,23 @@ func validateConfig(cfg *api.Config) error {
 	if cfg.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
 	}
-	if cfg.FlyToken == "" {
-		return fmt.Errorf("FLY_API_TOKEN is required")
+
+	// Validate backend selection
+	if cfg.Backend == "" {
+		return fmt.Errorf("BACKEND is required (must be 'fly' or 'kubernetes')")
 	}
+
+	switch cfg.Backend {
+	case "fly":
+		if cfg.FlyToken == "" {
+			return fmt.Errorf("FLY_API_TOKEN is required when BACKEND=fly")
+		}
+	case "kubernetes":
+		// Kubernetes config is optional, uses defaults
+	default:
+		return fmt.Errorf("BACKEND must be 'fly' or 'kubernetes', got: %s", cfg.Backend)
+	}
+
 	return nil
 }
 
@@ -149,10 +163,22 @@ func loadConfig() *api.Config {
 	return &api.Config{
 		Port:        devPort,
 		DatabaseURL: getEnv("DATABASE_URL", ""),
-		FlyToken:    getEnv("FLY_API_TOKEN", ""),
-		FlyOrg:      getEnv("FLY_ORG", ""),
-		FlyAppName:  getEnv("FLY_APP_NAME", ""),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
+
+		// Backend selection
+		Backend: getEnv("BACKEND", ""),
+
+		// Fly.io config
+		FlyToken:   getEnv("FLY_API_TOKEN", ""),
+		FlyOrg:     getEnv("FLY_ORG", ""),
+		FlyAppName: getEnv("FLY_APP_NAME", ""),
+
+		// Kubernetes config
+		K8sKubeconfig:     getEnv("K8S_KUBECONFIG", ""),
+		K8sNamespace:      getEnv("K8S_NAMESPACE", "execbox"),
+		K8sServiceAccount: getEnv("K8S_SERVICE_ACCOUNT", ""),
+		K8sRegistry:       getEnv("K8S_REGISTRY", "ttl.sh"),
+		K8sImageTTL:       getEnv("K8S_IMAGE_TTL", "4h"),
 	}
 }
 

@@ -300,7 +300,7 @@ func TestBuildMachineConfig(t *testing.T) {
 func TestCreateSession_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	apiKeyID := uuid.New()
 
@@ -339,7 +339,7 @@ func TestCreateSession_Success(t *testing.T) {
 func TestGetSession_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	apiKeyID := uuid.New()
 	machineID := "fly_machine_123"
@@ -381,7 +381,7 @@ func TestGetSession_Success(t *testing.T) {
 func TestGetAccount_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	apiKeyID := uuid.New()
 	email := "test@example.com"
@@ -430,7 +430,7 @@ func TestGetAccount_Success(t *testing.T) {
 func TestGetUsage_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	apiKeyID := uuid.New()
 
@@ -481,7 +481,7 @@ func TestGetUsage_Success(t *testing.T) {
 func TestCreateAPIKey_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	request := CreateKeyRequest{
 		Email: "test@example.com",
@@ -519,7 +519,7 @@ func TestCreateAPIKey_Success(t *testing.T) {
 func TestCreateAPIKey_MissingEmail(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	mockFly := newMockHandlerFly()
-	handlers := NewHandlers(mockDB, mockFly)
+	handlers := NewHandlersWithFly(mockDB, mockFly)
 
 	request := CreateKeyRequest{
 		Email: "",

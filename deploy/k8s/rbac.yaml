@@ -1,0 +1,76 @@
+---
+# ServiceAccount for execbox-cloud to manage pods
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: execbox
+  namespace: execbox
+  labels:
+    app.kubernetes.io/name: execbox
+    app.kubernetes.io/component: controller
+---
+# Role with permissions to manage execbox resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: execbox-controller
+  namespace: execbox
+  labels:
+    app.kubernetes.io/name: execbox
+rules:
+  # Pod management (create, run, attach, delete)
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, create, delete, deletecollection]
+
+  # Pod exec (for Exec() method)
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+
+  # Pod logs (for reading output from completed pods)
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+
+  # Pod attach (for streaming I/O)
+  - apiGroups: [""]
+    resources: [pods/attach]
+    verbs: [create]
+
+  # Port forwarding
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
+
+  # ConfigMaps (for build files and Dockerfile)
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, create, delete, deletecollection]
+
+  # Services (for exposing ports)
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, create, delete]
+
+  # PersistentVolumeClaims (for volumes)
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, delete]
+---
+# Bind the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: execbox-controller
+  namespace: execbox
+  labels:
+    app.kubernetes.io/name: execbox
+subjects:
+  - kind: ServiceAccount
+    name: execbox
+    namespace: execbox
+roleRef:
+  kind: Role
+  name: execbox-controller
+  apiGroup: rbac.authorization.k8s.io

@@ -19,11 +19,12 @@ type APIKey struct {
 	LastUsedAt    *time.Time `json:"last_used_at,omitempty"`
 }
 
-// Session represents an execution session with Fly.io machine mapping and lifecycle tracking.
+// Session represents an execution session with backend mapping and lifecycle tracking.
 type Session struct {
 	ID           string            `json:"id"` // sess_xxx
 	APIKeyID     uuid.UUID         `json:"api_key_id"`
-	FlyMachineID *string           `json:"fly_machine_id,omitempty"`
+	BackendID    *string           `json:"backend_id,omitempty"`    // Generic backend ID (pod name, machine ID, etc.)
+	FlyMachineID *string           `json:"fly_machine_id,omitempty"` // Deprecated: Use BackendID instead
 	FlyAppID     *string           `json:"fly_app_id,omitempty"`
 	Image        string            `json:"image"`
 	Command      []string          `json:"command,omitempty"`
@@ -35,6 +36,18 @@ type Session struct {
 	CreatedAt    time.Time         `json:"created_at"`
 	StartedAt    *time.Time        `json:"started_at,omitempty"`
 	EndedAt      *time.Time        `json:"ended_at,omitempty"`
+}
+
+// GetBackendID returns the backend-specific ID for this session.
+// It prefers BackendID, falling back to FlyMachineID for backward compatibility.
+func (s *Session) GetBackendID() string {
+	if s.BackendID != nil && *s.BackendID != "" {
+		return *s.BackendID
+	}
+	if s.FlyMachineID != nil {
+		return *s.FlyMachineID
+	}
+	return ""
 }
 
 // Port represents a port mapping for a session.
