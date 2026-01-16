@@ -222,10 +222,17 @@ func (s *SessionService) CreateSession(ctx context.Context, input *CreateSession
 
 // GetSession handles GET /v1/sessions/{id}
 // Retrieves a session by ID, checking ownership.
+// Syncs status from backend if session is active and has a backend ID.
 func (s *SessionService) GetSession(ctx context.Context, input *GetSessionInput) (*GetSessionOutput, error) {
 	session, err := s.getAuthorizedSession(ctx, input.ID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Sync status from backend if session is active and has a backend ID
+	backendID := session.GetBackendID()
+	if backendID != "" && isActiveStatus(session.Status) {
+		s.syncSessionStatus(ctx, session)
 	}
 
 	response := buildSessionResponse(session)
@@ -333,4 +340,56 @@ func (s *SessionService) KillSession(ctx context.Context, input *KillSessionInpu
 	}
 
 	return &KillSessionOutput{}, nil
+}
+
+// isActiveStatus checks if a status requires backend synchronization.
+// Active statuses are those where the session may still be transitioning.
+func isActiveStatus(status string) bool {
+	return status == SessionStatusPending || status == SessionStatusRunning
+}
+
+// syncSessionStatus synchronizes session status from the backend.
+// Updates the database if the backend reports a different status.
+// This is called during GetSession to ensure status is current.
+func (s *SessionService) syncSessionStatus(ctx context.Context, session *db.Session) {
+	if s.backend == nil {
+		return
+	}
+
+	backendID := session.GetBackendID()
+	if backendID == "" {
+		return
+	}
+
+	backendSession, err := s.backend.GetSession(ctx, backendID)
+	if err != nil {
+		// Log but don't fail - DB status is still valid
+		return
+	}
+
+	// Update DB if status changed
+	if backendSession.Status != session.Status {
+		update := &db.SessionUpdate{Status: &backendSession.Status}
+
+		// Copy exit code if available
+		if backendSession.ExitCode != nil {
+			update.ExitCode = backendSession.ExitCode
+		}
+
+		// Update timestamps if transitioning to terminal state
+		if backendSession.Status == SessionStatusStopped || backendSession.Status == SessionStatusFailed {
+			now := time.Now().UTC()
+			update.EndedAt = &now
+		}
+
+		// Update the database
+		if err := s.db.UpdateSession(ctx, session.ID, update); err == nil {
+			// Update local session object for response
+			session.Status = backendSession.Status
+			session.ExitCode = backendSession.ExitCode
+			if update.EndedAt != nil {
+				session.EndedAt = update.EndedAt
+			}
+		}
+	}
 }

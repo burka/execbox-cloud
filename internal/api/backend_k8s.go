@@ -89,7 +89,7 @@ func (b *K8sBackend) CreateSession(ctx context.Context, config *CreateSessionCon
 
 	// Build session metadata
 	session := &Session{
-		BackendID: info.ContainerID, // Pod name
+		BackendID: info.ID,
 		Status:    mapExecboxStatus(info.Status),
 		Host:      "kubernetes", // Could be cluster name or node name
 		CreatedAt: info.CreatedAt,
@@ -131,7 +131,7 @@ func (b *K8sBackend) GetSession(ctx context.Context, sessionID string) (*Session
 	}
 
 	session := &Session{
-		BackendID: info.ContainerID,
+		BackendID: info.ID,
 		Status:    mapExecboxStatus(info.Status),
 		Host:      "kubernetes",
 		CreatedAt: info.CreatedAt,
