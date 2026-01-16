@@ -64,26 +64,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a new API key
-         * @description Create a new API key for accessing the API. Does not require authentication.
-         */
-        post: operations["createAPIKey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/quota-requests": {
         parameters: {
             query?: never;
@@ -198,6 +178,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join the waitlist
+         * @description Join the waitlist to get early access. Returns an API key immediately for the free tier.
+         */
+        post: operations["joinWaitlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -239,53 +239,6 @@ export interface components {
              * @example 2025-01-15T10:30:00Z
              */
             tier_expires_at?: string;
-        };
-        CreateKeyRequest: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://api.execbox.cloud/schemas/CreateKeyRequest.json
-             */
-            readonly $schema?: string;
-            /**
-             * Format: email
-             * @description Email address for the API key
-             * @example user@example.com
-             */
-            email: string;
-            /**
-             * @description Optional display name
-             * @example My API Key
-             */
-            name?: string;
-        };
-        CreateKeyResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://api.execbox.cloud/schemas/CreateKeyResponse.json
-             */
-            readonly $schema?: string;
-            /**
-             * @description API key identifier
-             * @example uuid-here
-             */
-            id: string;
-            /**
-             * @description The API key (only shown once)
-             * @example sk_live_abc123...
-             */
-            key: string;
-            /**
-             * @description Response message
-             * @example API key created successfully
-             */
-            message: string;
-            /**
-             * @description Assigned tier
-             * @example free
-             */
-            tier: string;
         };
         CreateSessionRequest: {
             /**
@@ -635,6 +588,53 @@ export interface components {
              */
             tier: string;
         };
+        WaitlistRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/WaitlistRequest.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: email
+             * @description Email address to join the waitlist
+             * @example user@example.com
+             */
+            email: string;
+            /**
+             * @description Optional display name
+             * @example Jane Developer
+             */
+            name?: string;
+        };
+        WaitlistResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/WaitlistResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description API key identifier
+             * @example uuid-here
+             */
+            id: string;
+            /**
+             * @description Your API key (save this - only shown once)
+             * @example sk_live_abc123...
+             */
+            key: string;
+            /**
+             * @description Welcome message
+             * @example Welcome to execbox! Save your API key.
+             */
+            message: string;
+            /**
+             * @description Your tier
+             * @example free
+             */
+            tier: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -718,39 +718,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UsageResponse"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    createAPIKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateKeyResponse"];
                 };
             };
             /** @description Error */
@@ -984,6 +951,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StopSessionResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    joinWaitlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitlistResponse"];
                 };
             };
             /** @description Error */

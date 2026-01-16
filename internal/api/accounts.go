@@ -104,9 +104,9 @@ func (a *AccountService) GetUsage(ctx context.Context, input *GetUsageInput) (*G
 	}, nil
 }
 
-// CreateAPIKey handles POST /v1/keys
-// Creates a new API key (public endpoint, no auth required).
-func (a *AccountService) CreateAPIKey(ctx context.Context, input *CreateAPIKeyInput) (*CreateAPIKeyOutput, error) {
+// JoinWaitlist handles POST /v1/waitlist
+// Joins the waitlist and creates an API key (public endpoint, no auth required).
+func (a *AccountService) JoinWaitlist(ctx context.Context, input *JoinWaitlistInput) (*JoinWaitlistOutput, error) {
 	// Validate required fields
 	if input.Body.Email == "" {
 		return nil, huma.Error400BadRequest("email is required")
@@ -119,14 +119,14 @@ func (a *AccountService) CreateAPIKey(ctx context.Context, input *CreateAPIKeyIn
 	}
 
 	// Build response
-	response := CreateKeyResponse{
+	response := WaitlistResponse{
 		ID:      apiKey.ID.String(),
 		Key:     apiKey.Key,
 		Tier:    apiKey.Tier,
-		Message: "API key created successfully. Save this key - it will only be shown once.",
+		Message: "Welcome to execbox! Save your API key - it will only be shown once.",
 	}
 
-	return &CreateAPIKeyOutput{
+	return &JoinWaitlistOutput{
 		Body: response,
 	}, nil
 }

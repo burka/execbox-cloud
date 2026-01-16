@@ -88,17 +88,17 @@ func registerPublicRoutes(humaAPI huma.API, router *chi.Mux, services *Services,
 		next(ctx)
 	}
 
-	// POST /v1/keys - Create API key (public)
+	// POST /v1/waitlist - Join waitlist (public)
 	huma.Register(humaAPI, huma.Operation{
-		OperationID:   "createAPIKey",
+		OperationID:   "joinWaitlist",
 		Method:        "POST",
-		Path:          "/v1/keys",
-		Summary:       "Create a new API key",
-		Description:   "Create a new API key for accessing the API. Does not require authentication.",
-		Tags:          []string{"API Keys"},
+		Path:          "/v1/waitlist",
+		Summary:       "Join the waitlist",
+		Description:   "Join the waitlist to get early access. Returns an API key immediately for the free tier.",
+		Tags:          []string{"Waitlist"},
 		DefaultStatus: 201,
 		Middlewares:   huma.Middlewares{ipLimitedMiddleware},
-	}, services.Account.CreateAPIKey)
+	}, services.Account.JoinWaitlist)
 
 	// POST /v1/quota-requests - Create quota request (public)
 	huma.Register(humaAPI, huma.Operation{

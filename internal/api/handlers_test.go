@@ -408,19 +408,19 @@ func TestAccountService_GetUsage_Success(t *testing.T) {
 	}
 }
 
-func TestAccountService_CreateAPIKey_Success(t *testing.T) {
+func TestAccountService_JoinWaitlist_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	accountSvc := NewAccountService(mockDB)
 
-	input := &CreateAPIKeyInput{
-		Body: CreateKeyRequest{
+	input := &JoinWaitlistInput{
+		Body: WaitlistRequest{
 			Email: "test@example.com",
 		},
 	}
 
-	output, err := accountSvc.CreateAPIKey(context.Background(), input)
+	output, err := accountSvc.JoinWaitlist(context.Background(), input)
 	if err != nil {
-		t.Fatalf("CreateAPIKey failed: %v", err)
+		t.Fatalf("JoinWaitlist failed: %v", err)
 	}
 
 	if output.Body.ID == "" {
@@ -437,17 +437,17 @@ func TestAccountService_CreateAPIKey_Success(t *testing.T) {
 	}
 }
 
-func TestAccountService_CreateAPIKey_MissingEmail(t *testing.T) {
+func TestAccountService_JoinWaitlist_MissingEmail(t *testing.T) {
 	mockDB := newMockHandlerDB()
 	accountSvc := NewAccountService(mockDB)
 
-	input := &CreateAPIKeyInput{
-		Body: CreateKeyRequest{
+	input := &JoinWaitlistInput{
+		Body: WaitlistRequest{
 			Email: "",
 		},
 	}
 
-	_, err := accountSvc.CreateAPIKey(context.Background(), input)
+	_, err := accountSvc.JoinWaitlist(context.Background(), input)
 	if err == nil {
 		t.Fatal("Expected error for missing email")
 	}

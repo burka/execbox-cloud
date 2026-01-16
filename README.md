@@ -33,14 +33,30 @@ The service exposes HTTP and WebSocket endpoints for session management and proc
 ### Prerequisites
 
 - Go 1.25+
-- Environment variables configured
+- PostgreSQL database
+- Kubernetes cluster (microk8s, kind, etc.) or Fly.io account
 
 ### Environment Variables
 
 ```bash
+# Database
 DATABASE_URL=postgresql://user:password@host/dbname
+
+# Backend: 'kubernetes' or 'fly'
+BACKEND=kubernetes
+
+# Kubernetes backend settings
+K8S_NAMESPACE=execbox
+K8S_REGISTRY=ttl.sh
+K8S_IMAGE_TTL=4h
+
+# Fly.io backend settings (alternative)
 FLY_API_TOKEN=<your-fly-io-api-token>
 FLY_APP_NAME=execbox-cloud
+
+# Server settings
+PORT=8080
+LOG_LEVEL=debug
 ```
 
 ### Running
@@ -49,11 +65,92 @@ FLY_APP_NAME=execbox-cloud
 go run cmd/server/main.go
 ```
 
-The server starts on the configured port (default: 8080) and exposes:
+The server starts on the configured port and exposes:
 
 ```
 http://localhost:8080/health
 http://localhost:8080/v1/sessions
+```
+
+## Local Development
+
+### 1. Start PostgreSQL
+
+```bash
+docker run -d --name execbox-postgres \
+  -e POSTGRES_USER=execbox \
+  -e POSTGRES_PASSWORD=execbox \
+  -e POSTGRES_DB=execbox \
+  -p 54321:5432 \
+  postgres:16-alpine
+```
+
+### 2. Configure Environment
+
+Create a `.env` file in the project root:
+
+```bash
+DATABASE_URL=postgresql://execbox:execbox@localhost:54321/execbox
+BACKEND=kubernetes
+K8S_NAMESPACE=execbox
+K8S_REGISTRY=ttl.sh
+K8S_IMAGE_TTL=4h
+LOG_LEVEL=debug
+PORT=28080
+```
+
+### 3. Setup Kubernetes (microk8s example)
+
+```bash
+# Export kubeconfig
+mkdir -p ~/.kube && microk8s config > ~/.kube/config
+
+# Create namespace
+microk8s kubectl create namespace execbox
+```
+
+### 4. Start the Server
+
+```bash
+go build -o ./server ./cmd/server && ./server
+```
+
+### 5. Create a Test API Key
+
+Join the waitlist to get an API key:
+
+```bash
+curl -X POST http://localhost:28080/v1/waitlist \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com"}'
+```
+
+Response:
+```json
+{
+  "id": "uuid-here",
+  "key": "sk_abc123...",
+  "tier": "free",
+  "message": "Welcome to execbox! Save your API key - it will only be shown once."
+}
+```
+
+**Or insert directly into database for testing:**
+
+```bash
+docker exec execbox-postgres psql -U execbox -d execbox -c \
+  "INSERT INTO api_keys (key, email, tier) VALUES ('sk_test_local_dev_key', 'test@example.com', 'free');"
+```
+
+### 6. Test Session Creation
+
+```bash
+export API_KEY="sk_test_local_dev_key"  # or key from waitlist
+
+curl -X POST http://localhost:28080/v1/sessions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"image": "python:3.12-alpine", "command": ["python", "-c", "print(1+1)"]}'
 ```
 
 ## API Endpoints

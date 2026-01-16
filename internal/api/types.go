@@ -154,18 +154,18 @@ type UsageResponse struct {
 	MaxMemoryMB        int    `json:"max_memory_mb" doc:"Max memory per session in MB" example:"512"`
 }
 
-// CreateKeyRequest defines the request body for POST /v1/keys
-type CreateKeyRequest struct {
-	Email string  `json:"email" doc:"Email address for the API key" example:"user@example.com" format:"email" minLength:"1"`
-	Name  *string `json:"name,omitempty" doc:"Optional display name" example:"My API Key"`
+// WaitlistRequest defines the request body for POST /v1/waitlist
+type WaitlistRequest struct {
+	Email string  `json:"email" doc:"Email address to join the waitlist" example:"user@example.com" format:"email" minLength:"1"`
+	Name  *string `json:"name,omitempty" doc:"Optional display name" example:"Jane Developer"`
 }
 
-// CreateKeyResponse defines the response body for POST /v1/keys
-type CreateKeyResponse struct {
+// WaitlistResponse defines the response body for POST /v1/waitlist
+type WaitlistResponse struct {
 	ID      string `json:"id" doc:"API key identifier" example:"uuid-here"`
-	Key     string `json:"key" doc:"The API key (only shown once)" example:"sk_live_abc123..."`
-	Tier    string `json:"tier" doc:"Assigned tier" example:"free"`
-	Message string `json:"message" doc:"Response message" example:"API key created successfully"`
+	Key     string `json:"key" doc:"Your API key (save this - only shown once)" example:"sk_live_abc123..."`
+	Tier    string `json:"tier" doc:"Your tier" example:"free"`
+	Message string `json:"message" doc:"Welcome message" example:"Welcome to execbox! Save your API key."`
 }
 
 // --- Huma Input/Output Types ---
@@ -252,14 +252,14 @@ type GetUsageOutput struct {
 	Body UsageResponse
 }
 
-// CreateAPIKeyInput is the input for POST /v1/keys.
-type CreateAPIKeyInput struct {
-	Body CreateKeyRequest
+// JoinWaitlistInput is the input for POST /v1/waitlist.
+type JoinWaitlistInput struct {
+	Body WaitlistRequest
 }
 
-// CreateAPIKeyOutput is the output for POST /v1/keys.
-type CreateAPIKeyOutput struct {
-	Body CreateKeyResponse
+// JoinWaitlistOutput is the output for POST /v1/waitlist.
+type JoinWaitlistOutput struct {
+	Body WaitlistResponse
 }
 
 // HealthCheckInput is the input for GET /health.
