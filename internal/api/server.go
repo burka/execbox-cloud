@@ -17,7 +17,7 @@ import (
 // Server represents the HTTP server with all dependencies.
 type Server struct {
 	router      *chi.Mux
-	handlers    *Handlers
+	services    *Services
 	db          *db.Client
 	fly         *fly.Client // Deprecated: Use backend instead
 	backend     Backend
@@ -95,8 +95,10 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("unknown backend: %s", cfg.Backend)
 	}
 
-	// 4. Create handlers with backend
-	handlers := NewHandlers(dbClient, backend)
+	// 4. Create services with backend
+	sessionService := NewSessionService(dbClient, backend)
+	accountService := NewAccountService(dbClient)
+	quotaService := NewQuotaService(dbClient)
 
 	// 5. Set up image builder and cache (Fly-specific for now)
 	if flyClient != nil {
@@ -106,7 +108,14 @@ func NewServer(cfg *Config) (*Server, error) {
 			dbClient.PutImageCache,
 			dbClient.TouchImageCache,
 		)
-		handlers.SetBuilder(builder, cache)
+		sessionService.SetBuilder(builder, cache)
+	}
+
+	services := &Services{
+		Session: sessionService,
+		Account: accountService,
+		Quota:   quotaService,
+		DB:      dbClient,
 	}
 
 	// 6. Create rate limiter
@@ -121,10 +130,31 @@ func NewServer(cfg *Config) (*Server, error) {
 	router.Use(RecoveryMiddleware)
 	router.Use(LoggingMiddleware)
 
-	// 8. Create server and register routes
+	// 8. Register huma routes (replaces chi routes)
+	RegisterRoutes(router, services, rateLimiter)
+
+	// 9. Register WebSocket attach endpoint (special handling - not a huma handler)
+	router.Route("/v1", func(r chi.Router) {
+		r.Group(func(r chi.Router) {
+			r.Use(AuthMiddleware(dbClient))
+			r.Use(rateLimiter.Middleware())
+			r.Get("/sessions/{id}/attach", handleAttach(services.Session, dbClient))
+		})
+	})
+
+	// 10. Dashboard SPA - catch all remaining routes
+	dashboardFS, err := static.DashboardFS()
+	if err != nil {
+		slog.Error("failed to get dashboard filesystem", "error", err)
+	} else {
+		spaHandler := NewSPAHandler(dashboardFS, "index.html", "/assets/")
+		router.Handle("/*", spaHandler)
+	}
+
+	// 11. Create server
 	s := &Server{
 		router:      router,
-		handlers:    handlers,
+		services:    services,
 		db:          dbClient,
 		fly:         flyClient,
 		backend:     backend,
@@ -132,106 +162,37 @@ func NewServer(cfg *Config) (*Server, error) {
 		config:      cfg,
 	}
 
-	s.registerRoutes()
-
 	return s, nil
 }
 
-// registerRoutes sets up all HTTP routes.
-func (s *Server) registerRoutes() {
-	// Set up OpenAPI documentation
-	_ = SetupOpenAPI(s.router)
+// handleAttach creates a handler that wraps WebSocket attach for session I/O streaming.
+// This needs special handling because WebSocket upgrades don't fit the standard huma pattern.
+func handleAttach(sessionSvc *SessionService, dbClient DBClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get session ID from URL params
+		sessionID := chi.URLParam(r, "id")
+		if sessionID == "" {
+			WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest),
+				http.StatusBadRequest, CodeBadRequest)
+			return
+		}
 
-	// Health check endpoint (no auth required)
-	s.router.Get("/health", s.healthCheck)
+		// Get API key ID from context (set by auth middleware)
+		apiKeyID, ok := GetAPIKeyID(r.Context())
+		if !ok {
+			WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
+			return
+		}
 
-	// API v1 routes
-	s.router.Route("/v1", func(r chi.Router) {
-		// Public endpoints with IP-based rate limiting
-		r.Group(func(r chi.Router) {
-			r.Use(s.rateLimiter.IPMiddleware())
-			r.Post("/quota-requests", s.handlers.CreateQuotaRequest)
-		})
+		// Create API key struct with the ID for ownership check
+		apiKey := &db.APIKey{ID: apiKeyID}
 
-		// Public API endpoints (no auth required, IP rate limited)
-		r.Group(func(r chi.Router) {
-			r.Use(s.rateLimiter.IPMiddleware())
-			r.Post("/keys", s.handlers.CreateAPIKey)
-		})
-
-		// Authenticated endpoints
-		r.Group(func(r chi.Router) {
-			// Apply auth middleware first, then rate limiting
-			r.Use(AuthMiddleware(s.db))
-			r.Use(s.rateLimiter.Middleware())
-
-			// Account management
-			r.Get("/account", s.handlers.GetAccount)
-			r.Get("/account/usage", s.handlers.GetUsage)
-
-			// Session management
-			r.Post("/sessions", s.handlers.CreateSession)
-			r.Get("/sessions", s.handlers.ListSessions)
-			r.Get("/sessions/{id}", s.handlers.GetSession)
-			r.Post("/sessions/{id}/stop", s.handlers.StopSession)
-			r.Delete("/sessions/{id}", s.handlers.KillSession)
-
-			// WebSocket attach endpoint
-			r.Get("/sessions/{id}/attach", s.handleAttach)
-		})
-	})
-
-	// Dashboard SPA - catch all remaining routes
-	// This must be registered AFTER all API routes to ensure API routes take precedence
-	dashboardFS, err := static.DashboardFS()
-	if err != nil {
-		slog.Error("failed to get dashboard filesystem", "error", err)
-	} else {
-		spaHandler := NewSPAHandler(dashboardFS, "index.html", "/assets/")
-		s.router.Handle("/*", spaHandler)
+		// Call the WebSocket attach handler
+		// Note: This uses the Handlers struct's AttachSession for backward compatibility
+		// TODO: Move WebSocket handling to SessionService when refactoring websocket.go
+		handlers := &Handlers{db: dbClient, backend: sessionSvc.backend}
+		handlers.AttachSession(w, r, sessionID, apiKey)
 	}
-}
-
-// healthCheck handles GET /health - verifies server and database connectivity.
-func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
-	// Check database health
-	if err := s.db.Health(r.Context()); err != nil {
-		slog.Error("health check failed", "error", err)
-		WriteError(w, fmt.Errorf("database health check failed: %w", err),
-			http.StatusServiceUnavailable, "UNAVAILABLE")
-		return
-	}
-
-	// Return healthy status
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
-}
-
-// handleAttach wraps the WebSocket attach handler to extract session ID and API key.
-// This is needed because AttachSession expects additional parameters beyond http.Handler signature.
-func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
-	// Get session ID from URL params
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		WriteError(w, fmt.Errorf("%w: session ID is required", ErrBadRequest),
-			http.StatusBadRequest, CodeBadRequest)
-		return
-	}
-
-	// Get API key ID from context (set by auth middleware)
-	apiKeyID, ok := GetAPIKeyID(r.Context())
-	if !ok {
-		WriteError(w, ErrUnauthorized, http.StatusUnauthorized, CodeUnauthorized)
-		return
-	}
-
-	// Create API key struct with the ID for ownership check
-	// AttachSession only needs the ID for ownership validation
-	apiKey := &db.APIKey{ID: apiKeyID}
-
-	// Call the attach handler
-	s.handlers.AttachSession(w, r, sessionID, apiKey)
 }
 
 // Router returns the chi router instance for use with http.Server.

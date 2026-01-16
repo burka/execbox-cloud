@@ -1,6 +1,8 @@
 // Package api provides HTTP API types for execbox-cloud
 package api
 
+// --- Core Request/Response Types ---
+
 // CreateSessionRequest defines the request body for POST /v1/sessions
 type CreateSessionRequest struct {
 	Image     string            `json:"image" doc:"Container image (e.g., python:3.11, node:20)" example:"python:3.11" minLength:"1"`
@@ -14,21 +16,27 @@ type CreateSessionRequest struct {
 	Ports     []PortSpec        `json:"ports,omitempty" doc:"Ports to expose from container"`
 }
 
-// FileSpec defines a file to include in the built image
+// FileSpec defines a file to include in the built image.
+// This is the API representation (text/base64 encoding).
+// For internal backend use, see SessionFile in backend.go which uses []byte.
 type FileSpec struct {
 	Path     string `json:"path" doc:"Destination path in container" example:"/app/script.py" minLength:"1"`
 	Content  string `json:"content" doc:"File content (text or base64)" example:"print('hello')"`
 	Encoding string `json:"encoding,omitempty" doc:"Content encoding: utf8 (default) or base64" enum:"utf8,base64" default:"utf8"`
 }
 
-// Resources defines resource limits for a session
+// Resources defines resource limits for a session.
+// This type is used both in API requests and backend configurations.
+// It consolidates the previous Resources (API) and SessionResources (backend) types.
 type Resources struct {
 	CPUMillis int `json:"cpuMillis,omitempty" doc:"CPU limit in millicores (1000 = 1 CPU core)" example:"1000" minimum:"100" maximum:"8000"`
 	MemoryMB  int `json:"memoryMB,omitempty" doc:"Memory limit in MB" example:"512" minimum:"128" maximum:"8192"`
 	TimeoutMs int `json:"timeoutMs,omitempty" doc:"Timeout in milliseconds" example:"60000" minimum:"1000" maximum:"300000"`
 }
 
-// PortSpec defines a port to expose from the container
+// PortSpec defines a port to expose from the container.
+// This type is used both in API requests and backend configurations.
+// It consolidates the previous PortSpec (API) and SessionPort (backend) types.
 type PortSpec struct {
 	Container int    `json:"container" doc:"Container port number" example:"8080" minimum:"1" maximum:"65535"`
 	Protocol  string `json:"protocol,omitempty" doc:"Protocol: tcp or udp" enum:"tcp,udp" default:"tcp"`
@@ -158,4 +166,109 @@ type CreateKeyResponse struct {
 	Key     string `json:"key" doc:"The API key (only shown once)" example:"sk_live_abc123..."`
 	Tier    string `json:"tier" doc:"Assigned tier" example:"free"`
 	Message string `json:"message" doc:"Response message" example:"API key created successfully"`
+}
+
+// --- Huma Input/Output Types ---
+// These wrap the core types with path parameters, query parameters, and body.
+
+// CreateSessionInput is the input for POST /v1/sessions.
+type CreateSessionInput struct {
+	Body CreateSessionRequest
+}
+
+// CreateSessionOutput is the output for POST /v1/sessions.
+type CreateSessionOutput struct {
+	Body CreateSessionResponse
+}
+
+// ListSessionsInput is the input for GET /v1/sessions.
+type ListSessionsInput struct {
+}
+
+// ListSessionsOutput is the output for GET /v1/sessions.
+type ListSessionsOutput struct {
+	Body ListSessionsResponse
+}
+
+// GetSessionInput is the input for GET /v1/sessions/{id}.
+type GetSessionInput struct {
+	ID string `path:"id" doc:"Session ID" example:"sess_abc123" minLength:"1"`
+}
+
+// GetSessionOutput is the output for GET /v1/sessions/{id}.
+type GetSessionOutput struct {
+	Body SessionResponse
+}
+
+// StopSessionInput is the input for POST /v1/sessions/{id}/stop.
+type StopSessionInput struct {
+	ID string `path:"id" doc:"Session ID" example:"sess_abc123" minLength:"1"`
+}
+
+// StopSessionOutput is the output for POST /v1/sessions/{id}/stop (204 No Content).
+type StopSessionOutput struct {
+	Body StopSessionResponse
+}
+
+// KillSessionInput is the input for DELETE /v1/sessions/{id}.
+type KillSessionInput struct {
+	ID string `path:"id" doc:"Session ID" example:"sess_abc123" minLength:"1"`
+}
+
+// KillSessionOutput is the output for DELETE /v1/sessions/{id} (204 No Content).
+type KillSessionOutput struct {
+}
+
+// AttachSessionInput is the input for GET /v1/sessions/{id}/attach (WebSocket upgrade).
+type AttachSessionInput struct {
+	ID string `path:"id" doc:"Session ID" example:"sess_abc123" minLength:"1"`
+}
+
+// CreateQuotaRequestInput is the input for POST /v1/quota-requests.
+type CreateQuotaRequestInput struct {
+	Body QuotaRequestRequest
+}
+
+// CreateQuotaRequestOutput is the output for POST /v1/quota-requests.
+type CreateQuotaRequestOutput struct {
+	Body QuotaRequestResponse
+}
+
+// GetAccountInput is the input for GET /v1/account.
+type GetAccountInput struct {
+}
+
+// GetAccountOutput is the output for GET /v1/account.
+type GetAccountOutput struct {
+	Body AccountResponse
+}
+
+// GetUsageInput is the input for GET /v1/account/usage.
+type GetUsageInput struct {
+}
+
+// GetUsageOutput is the output for GET /v1/account/usage.
+type GetUsageOutput struct {
+	Body UsageResponse
+}
+
+// CreateAPIKeyInput is the input for POST /v1/keys.
+type CreateAPIKeyInput struct {
+	Body CreateKeyRequest
+}
+
+// CreateAPIKeyOutput is the output for POST /v1/keys.
+type CreateAPIKeyOutput struct {
+	Body CreateKeyResponse
+}
+
+// HealthCheckInput is the input for GET /health.
+type HealthCheckInput struct {
+}
+
+// HealthCheckOutput is the output for GET /health.
+type HealthCheckOutput struct {
+	Body struct {
+		Status string `json:"status" doc:"Health status" example:"ok"`
+	}
 }

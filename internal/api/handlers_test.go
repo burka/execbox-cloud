@@ -1,18 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/burka/execbox-cloud/internal/backend/fly"
 	"github.com/burka/execbox-cloud/internal/db"
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -180,42 +175,6 @@ func (m *mockHandlerDB) CreateAPIKey(ctx context.Context, email string, name *st
 	return apiKey, nil
 }
 
-// mockHandlerFly is a mock implementation of the Fly client for handler tests
-type mockHandlerFly struct {
-	createMachineErr  error
-	stopMachineErr    error
-	destroyMachineErr error
-	machineID         string
-}
-
-func newMockHandlerFly() *mockHandlerFly {
-	return &mockHandlerFly{
-		machineID: "fly_machine_test_123",
-	}
-}
-
-func (m *mockHandlerFly) CreateMachine(ctx context.Context, config *fly.MachineConfig) (*fly.Machine, error) {
-	if m.createMachineErr != nil {
-		return nil, m.createMachineErr
-	}
-
-	return &fly.Machine{
-		ID:        m.machineID,
-		State:     "created",
-		Region:    "lhr",
-		Config:    config,
-		CreatedAt: time.Now().Format(time.RFC3339),
-	}, nil
-}
-
-func (m *mockHandlerFly) StopMachine(ctx context.Context, machineID string) error {
-	return m.stopMachineErr
-}
-
-func (m *mockHandlerFly) DestroyMachine(ctx context.Context, machineID string) error {
-	return m.destroyMachineErr
-}
-
 func TestGenerateSessionID(t *testing.T) {
 	// Test that session IDs have correct format
 	for i := 0; i < 10; i++ {
@@ -297,49 +256,44 @@ func TestBuildMachineConfig(t *testing.T) {
 	}
 }
 
-func TestCreateSession_Success(t *testing.T) {
+// Tests for the new huma-based services
+
+func TestSessionService_CreateSession_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	mockBackend := &mockBackendHandler{}
+	sessionSvc := NewSessionService(mockDB, mockBackend)
 
 	apiKeyID := uuid.New()
 
-	request := CreateSessionRequest{
-		Image:   "ubuntu:22.04",
-		Command: []string{"bash", "-c", "echo hello"},
-		Env: map[string]string{
-			"FOO": "bar",
+	input := &CreateSessionInput{
+		Body: CreateSessionRequest{
+			Image:   "ubuntu:22.04",
+			Command: []string{"bash", "-c", "echo hello"},
+			Env: map[string]string{
+				"FOO": "bar",
+			},
 		},
 	}
 
-	body, _ := json.Marshal(request)
-	req := httptest.NewRequest(http.MethodPost, "/v1/sessions", bytes.NewReader(body))
-	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
+	ctx := WithAPIKeyID(context.Background(), apiKeyID)
 
-	w := httptest.NewRecorder()
-	handlers.CreateSession(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+	output, err := sessionSvc.CreateSession(ctx, input)
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	var response CreateSessionResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if response.ID == "" {
+	if output.Body.ID == "" {
 		t.Error("Expected session ID in response")
 	}
-	if response.Status != "pending" {
-		t.Errorf("Expected status 'pending', got '%s'", response.Status)
+	if output.Body.Status != "pending" {
+		t.Errorf("Expected status 'pending', got '%s'", output.Body.Status)
 	}
 }
 
-func TestGetSession_Success(t *testing.T) {
+func TestSessionService_GetSession_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	mockBackend := &mockBackendHandler{}
+	sessionSvc := NewSessionService(mockDB, mockBackend)
 
 	apiKeyID := uuid.New()
 	machineID := "fly_machine_123"
@@ -354,34 +308,25 @@ func TestGetSession_Success(t *testing.T) {
 	}
 	mockDB.sessions[existingSession.ID] = existingSession
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/sess_test_123", nil)
-
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", "sess_test_123")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
-
-	w := httptest.NewRecorder()
-	handlers.GetSession(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	input := &GetSessionInput{
+		ID: "sess_test_123",
 	}
 
-	var response SessionResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	ctx := WithAPIKeyID(context.Background(), apiKeyID)
+
+	output, err := sessionSvc.GetSession(ctx, input)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
 	}
 
-	if response.ID != "sess_test_123" {
-		t.Errorf("Expected session ID 'sess_test_123', got '%s'", response.ID)
+	if output.Body.ID != "sess_test_123" {
+		t.Errorf("Expected session ID 'sess_test_123', got '%s'", output.Body.ID)
 	}
 }
 
-func TestGetAccount_Success(t *testing.T) {
+func TestAccountService_GetAccount_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	accountSvc := NewAccountService(mockDB)
 
 	apiKeyID := uuid.New()
 	email := "test@example.com"
@@ -398,39 +343,31 @@ func TestGetAccount_Success(t *testing.T) {
 	}
 	mockDB.apiKeysByString[testKey.Key] = testKey
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/account", nil)
-	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
+	input := &GetAccountInput{}
+	ctx := WithAPIKeyID(context.Background(), apiKeyID)
 
-	w := httptest.NewRecorder()
-	handlers.GetAccount(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	output, err := accountSvc.GetAccount(ctx, input)
+	if err != nil {
+		t.Fatalf("GetAccount failed: %v", err)
 	}
 
-	var response AccountResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	if output.Body.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", output.Body.Tier)
 	}
-
-	if response.Tier != "free" {
-		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	if output.Body.Email == nil || *output.Body.Email != email {
+		t.Errorf("Expected email '%s', got '%v'", email, output.Body.Email)
 	}
-	if response.Email == nil || *response.Email != email {
-		t.Errorf("Expected email '%s', got '%v'", email, response.Email)
+	if output.Body.APIKeyID != apiKeyID.String() {
+		t.Errorf("Expected API key ID '%s', got '%s'", apiKeyID.String(), output.Body.APIKeyID)
 	}
-	if response.APIKeyID != apiKeyID.String() {
-		t.Errorf("Expected API key ID '%s', got '%s'", apiKeyID.String(), response.APIKeyID)
-	}
-	if response.APIKeyPreview != "sk_test...9012" {
-		t.Errorf("Expected masked key 'sk_test...9012', got '%s'", response.APIKeyPreview)
+	if output.Body.APIKeyPreview != "sk_test...9012" {
+		t.Errorf("Expected masked key 'sk_test...9012', got '%s'", output.Body.APIKeyPreview)
 	}
 }
 
-func TestGetUsage_Success(t *testing.T) {
+func TestAccountService_GetUsage_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	accountSvc := NewAccountService(mockDB)
 
 	apiKeyID := uuid.New()
 
@@ -445,93 +382,117 @@ func TestGetUsage_Success(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/account/usage", nil)
-	req = req.WithContext(WithAPIKeyID(req.Context(), apiKeyID))
-	req = req.WithContext(WithAPIKeyTier(req.Context(), "free"))
+	input := &GetUsageInput{}
+	ctx := WithAPIKeyID(context.Background(), apiKeyID)
+	ctx = WithAPIKeyTier(ctx, "free")
 
-	w := httptest.NewRecorder()
-	handlers.GetUsage(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	output, err := accountSvc.GetUsage(ctx, input)
+	if err != nil {
+		t.Fatalf("GetUsage failed: %v", err)
 	}
 
-	var response UsageResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	if output.Body.SessionsToday != 3 {
+		t.Errorf("Expected 3 sessions today, got %d", output.Body.SessionsToday)
 	}
-
-	if response.SessionsToday != 3 {
-		t.Errorf("Expected 3 sessions today, got %d", response.SessionsToday)
+	if output.Body.ActiveSessions != 3 {
+		t.Errorf("Expected 3 active sessions, got %d", output.Body.ActiveSessions)
 	}
-	if response.ActiveSessions != 3 {
-		t.Errorf("Expected 3 active sessions, got %d", response.ActiveSessions)
+	if output.Body.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", output.Body.Tier)
 	}
-	if response.Tier != "free" {
-		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	if output.Body.DailyLimit != 10 {
+		t.Errorf("Expected daily limit 10, got %d", output.Body.DailyLimit)
 	}
-	if response.DailyLimit != 10 {
-		t.Errorf("Expected daily limit 10, got %d", response.DailyLimit)
-	}
-	if response.QuotaRemaining != 7 {
-		t.Errorf("Expected quota remaining 7, got %d", response.QuotaRemaining)
+	if output.Body.QuotaRemaining != 7 {
+		t.Errorf("Expected quota remaining 7, got %d", output.Body.QuotaRemaining)
 	}
 }
 
-func TestCreateAPIKey_Success(t *testing.T) {
+func TestAccountService_CreateAPIKey_Success(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	accountSvc := NewAccountService(mockDB)
 
-	request := CreateKeyRequest{
-		Email: "test@example.com",
+	input := &CreateAPIKeyInput{
+		Body: CreateKeyRequest{
+			Email: "test@example.com",
+		},
 	}
 
-	body, _ := json.Marshal(request)
-	req := httptest.NewRequest(http.MethodPost, "/v1/keys", bytes.NewReader(body))
-
-	w := httptest.NewRecorder()
-	handlers.CreateAPIKey(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+	output, err := accountSvc.CreateAPIKey(context.Background(), input)
+	if err != nil {
+		t.Fatalf("CreateAPIKey failed: %v", err)
 	}
 
-	var response CreateKeyResponse
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if response.ID == "" {
+	if output.Body.ID == "" {
 		t.Error("Expected API key ID in response")
 	}
-	if response.Key == "" {
+	if output.Body.Key == "" {
 		t.Error("Expected API key in response")
 	}
-	if response.Tier != "free" {
-		t.Errorf("Expected tier 'free', got '%s'", response.Tier)
+	if output.Body.Tier != "free" {
+		t.Errorf("Expected tier 'free', got '%s'", output.Body.Tier)
 	}
-	if response.Message == "" {
+	if output.Body.Message == "" {
 		t.Error("Expected message in response")
 	}
 }
 
-func TestCreateAPIKey_MissingEmail(t *testing.T) {
+func TestAccountService_CreateAPIKey_MissingEmail(t *testing.T) {
 	mockDB := newMockHandlerDB()
-	mockFly := newMockHandlerFly()
-	handlers := NewHandlersWithFly(mockDB, mockFly)
+	accountSvc := NewAccountService(mockDB)
 
-	request := CreateKeyRequest{
-		Email: "",
+	input := &CreateAPIKeyInput{
+		Body: CreateKeyRequest{
+			Email: "",
+		},
 	}
 
-	body, _ := json.Marshal(request)
-	req := httptest.NewRequest(http.MethodPost, "/v1/keys", bytes.NewReader(body))
-
-	w := httptest.NewRecorder()
-	handlers.CreateAPIKey(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	_, err := accountSvc.CreateAPIKey(context.Background(), input)
+	if err == nil {
+		t.Fatal("Expected error for missing email")
 	}
+}
+
+// mockBackendHandler is a mock implementation of the Backend interface for handler tests
+type mockBackendHandler struct {
+	createErr  error
+	stopErr    error
+	destroyErr error
+	backendID  string
+}
+
+func (m *mockBackendHandler) Name() string {
+	return "mock"
+}
+
+func (m *mockBackendHandler) CreateSession(ctx context.Context, config *CreateSessionConfig) (*Session, *SessionNetwork, error) {
+	if m.createErr != nil {
+		return nil, nil, m.createErr
+	}
+
+	backendID := m.backendID
+	if backendID == "" {
+		backendID = "mock_backend_123"
+	}
+
+	return &Session{
+		BackendID: backendID,
+		Status:    "running",
+	}, nil, nil
+}
+
+func (m *mockBackendHandler) GetSession(ctx context.Context, sessionID string) (*Session, error) {
+	return &Session{
+		ID:        sessionID,
+		BackendID: "mock_backend_123",
+		Status:    "running",
+	}, nil
+}
+
+func (m *mockBackendHandler) StopSession(ctx context.Context, backendID string) error {
+	return m.stopErr
+}
+
+func (m *mockBackendHandler) DestroySession(ctx context.Context, backendID string) error {
+	return m.destroyErr
 }

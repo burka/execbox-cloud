@@ -41,29 +41,16 @@ type CreateSessionConfig struct {
 	WorkDir string            // Working directory
 
 	// Resource limits
-	Resources *SessionResources // CPU and memory limits
+	Resources *Resources // CPU and memory limits
 
 	// Network configuration
-	Network string        // Network mode: none, outgoing, exposed
-	Ports   []SessionPort // Ports to expose
+	Network string     // Network mode: none, outgoing, exposed
+	Ports   []PortSpec // Ports to expose
 
 	// Advanced configuration
 	Setup       []string      // Setup commands to run before main command
 	Files       []SessionFile // Files to include in the container
 	AutoDestroy bool          // Whether to auto-destroy on completion
-}
-
-// SessionResources defines resource limits for a session.
-type SessionResources struct {
-	CPUMillis int // CPU limit in millicores
-	MemoryMB  int // Memory limit in MB
-	TimeoutMs int // Timeout in milliseconds
-}
-
-// SessionPort defines a port to expose from the container.
-type SessionPort struct {
-	Container int    // Container port number
-	Protocol  string // Protocol: tcp or udp
 }
 
 // SessionFile defines a file to include in the container.
