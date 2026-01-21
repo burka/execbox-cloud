@@ -109,6 +109,18 @@ func (c *Client) CreateAPIKey(ctx context.Context, email string, name *string) (
 		return nil, fmt.Errorf("failed to create API key: %w", err)
 	}
 
+	// Create default account limits for the new account
+	limitsQuery := `
+		INSERT INTO account_limits (account_id, daily_requests_limit, concurrent_requests_limit, alert_threshold_percentage, timezone, created_at, updated_at)
+		VALUES ($1, 100, 5, 80, 'UTC', NOW(), NOW())
+	`
+	_, limitsErr := c.pool.Exec(ctx, limitsQuery, apiKey.ID)
+	if limitsErr != nil {
+		// Log the error but don't fail the API key creation
+		// GetAccountLimits has a fallback, so this is not critical
+		fmt.Printf("Warning: failed to create default account limits for %s: %v\n", apiKey.ID, limitsErr)
+	}
+
 	return &apiKey, nil
 }
 
@@ -379,6 +391,30 @@ func (c *Client) UpdateSession(ctx context.Context, id string, update *SessionUp
 		argPos++
 	}
 
+	if update.CostEstimateCents != nil {
+		updates = append(updates, fmt.Sprintf(" cost_estimate_cents = $%d", argPos))
+		args = append(args, *update.CostEstimateCents)
+		argPos++
+	}
+
+	if update.CPUMillisUsed != nil {
+		updates = append(updates, fmt.Sprintf(" cpu_millis_used = $%d", argPos))
+		args = append(args, *update.CPUMillisUsed)
+		argPos++
+	}
+
+	if update.MemoryPeakMB != nil {
+		updates = append(updates, fmt.Sprintf(" memory_peak_mb = $%d", argPos))
+		args = append(args, *update.MemoryPeakMB)
+		argPos++
+	}
+
+	if update.DurationMs != nil {
+		updates = append(updates, fmt.Sprintf(" duration_ms = $%d", argPos))
+		args = append(args, *update.DurationMs)
+		argPos++
+	}
+
 	if len(updates) == 0 {
 		return fmt.Errorf("no fields to update")
 	}
@@ -572,4 +608,208 @@ func (c *Client) CreateQuotaRequest(ctx context.Context, req *QuotaRequest) (*Qu
 
 	req.Status = "pending"
 	return req, nil
+}
+
+// ============================================================================
+// Account Usage Queries
+// ============================================================================
+
+// GetAccountLimits retrieves account limits by account ID.
+// Returns an error if the limits are not found or if the query fails.
+func (c *Client) GetAccountLimits(ctx context.Context, accountID uuid.UUID) (*AccountLimits, error) {
+	query := `
+		SELECT account_id, daily_requests_limit, concurrent_requests_limit,
+		       CASE WHEN monthly_cost_limit IS NOT NULL THEN (monthly_cost_limit * 100)::bigint ELSE NULL END,
+		       alert_threshold_percentage, billing_email, timezone, updated_at, created_at
+		FROM account_limits
+		WHERE account_id = $1
+	`
+
+	var limits AccountLimits
+	err := c.pool.QueryRow(ctx, query, accountID).Scan(
+		&limits.AccountID,
+		&limits.DailyRequestsLimit,
+		&limits.ConcurrentRequestsLimit,
+		&limits.MonthlyCostLimitCents,
+		&limits.AlertThresholdPercentage,
+		&limits.BillingEmail,
+		&limits.Timezone,
+		&limits.UpdatedAt,
+		&limits.CreatedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("account limits not found")
+		}
+		return nil, fmt.Errorf("failed to get account limits: %w", err)
+	}
+
+	return &limits, nil
+}
+
+// UpsertAccountLimits creates or updates account limits.
+// Uses INSERT ... ON CONFLICT to atomically create or update the record.
+func (c *Client) UpsertAccountLimits(ctx context.Context, limits *AccountLimits) error {
+	query := `
+		INSERT INTO account_limits (
+			account_id, daily_requests_limit, concurrent_requests_limit, monthly_cost_limit,
+			alert_threshold_percentage, billing_email, timezone, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, CASE WHEN $4::bigint IS NOT NULL THEN $4::numeric / 100 ELSE NULL END, $5, $6, $7, NOW(), NOW())
+		ON CONFLICT (account_id) DO UPDATE SET
+			daily_requests_limit = EXCLUDED.daily_requests_limit,
+			concurrent_requests_limit = EXCLUDED.concurrent_requests_limit,
+			monthly_cost_limit = EXCLUDED.monthly_cost_limit,
+			alert_threshold_percentage = EXCLUDED.alert_threshold_percentage,
+			billing_email = EXCLUDED.billing_email,
+			timezone = EXCLUDED.timezone,
+			updated_at = NOW()
+	`
+
+	_, err := c.pool.Exec(ctx, query,
+		limits.AccountID,
+		limits.DailyRequestsLimit,
+		limits.ConcurrentRequestsLimit,
+		limits.MonthlyCostLimitCents,
+		limits.AlertThresholdPercentage,
+		limits.BillingEmail,
+		limits.Timezone,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to upsert account limits: %w", err)
+	}
+
+	return nil
+}
+
+// GetHourlyAccountUsage retrieves hourly usage metrics for an account within a time range.
+// Returns an empty slice if no records are found.
+func (c *Client) GetHourlyAccountUsage(ctx context.Context, accountID uuid.UUID, start, end time.Time) ([]HourlyAccountUsage, error) {
+	query := `
+		SELECT id, account_id, hour, executions, duration_ms, cost_estimate_cents, cpu_millis_used, memory_mb_seconds, errors, created_at, updated_at
+		FROM hourly_account_usage
+		WHERE account_id = $1
+		  AND hour BETWEEN $2 AND $3
+		ORDER BY hour ASC
+	`
+
+	rows, err := c.pool.Query(ctx, query, accountID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hourly account usage: %w", err)
+	}
+	defer rows.Close()
+
+	var usage []HourlyAccountUsage
+	for rows.Next() {
+		var u HourlyAccountUsage
+		err := rows.Scan(
+			&u.ID,
+			&u.AccountID,
+			&u.Hour,
+			&u.Executions,
+			&u.DurationMs,
+			&u.CostEstimateCents,
+			&u.CPUMillisUsed,
+			&u.MemoryMBSeconds,
+			&u.Errors,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan hourly account usage row: %w", err)
+		}
+		usage = append(usage, u)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating hourly account usage: %w", err)
+	}
+
+	return usage, nil
+}
+
+// GetDailyAccountUsage retrieves daily aggregated usage metrics for an account.
+// Returns an empty slice if no records are found.
+func (c *Client) GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, days int) ([]UsageMetric, error) {
+	query := `
+		SELECT id, api_key_id, date, executions, duration_ms
+		FROM usage_metrics
+		WHERE account_id = $1
+		  AND date >= CURRENT_DATE - $2 * INTERVAL '1 day'
+		ORDER BY date DESC
+	`
+
+	rows, err := c.pool.Query(ctx, query, accountID, days)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daily account usage: %w", err)
+	}
+	defer rows.Close()
+
+	var usage []UsageMetric
+	for rows.Next() {
+		var u UsageMetric
+		err := rows.Scan(
+			&u.ID,
+			&u.APIKeyID,
+			&u.Date,
+			&u.Executions,
+			&u.DurationMs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan daily account usage row: %w", err)
+		}
+		usage = append(usage, u)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating daily account usage: %w", err)
+	}
+
+	return usage, nil
+}
+
+// GetAccountCostTracking retrieves cost tracking data for an account for a specific billing period.
+// Returns an empty slice if no records are found.
+func (c *Client) GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]AccountCostTracking, error) {
+	query := `
+		SELECT id, account_id, date, daily_cost_cents, daily_executions, billing_period_start, billing_period_end, created_at, updated_at
+		FROM account_cost_tracking
+		WHERE account_id = $1
+		  AND billing_period_start = $2
+		ORDER BY date ASC
+	`
+
+	rows, err := c.pool.Query(ctx, query, accountID, periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account cost tracking: %w", err)
+	}
+	defer rows.Close()
+
+	var tracking []AccountCostTracking
+	for rows.Next() {
+		var t AccountCostTracking
+		err := rows.Scan(
+			&t.ID,
+			&t.AccountID,
+			&t.Date,
+			&t.DailyCostCents,
+			&t.DailyExecutions,
+			&t.BillingPeriodStart,
+			&t.BillingPeriodEnd,
+			&t.CreatedAt,
+			&t.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan account cost tracking row: %w", err)
+		}
+		tracking = append(tracking, t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating account cost tracking: %w", err)
+	}
+
+	return tracking, nil
 }

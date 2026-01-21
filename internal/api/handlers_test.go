@@ -176,6 +176,26 @@ func (m *mockHandlerDB) CreateAPIKey(ctx context.Context, email string, name *st
 	return apiKey, nil
 }
 
+func (m *mockHandlerDB) GetAccountLimits(ctx context.Context, accountID uuid.UUID) (*db.AccountLimits, error) {
+	return nil, nil
+}
+
+func (m *mockHandlerDB) UpsertAccountLimits(ctx context.Context, limits *db.AccountLimits) error {
+	return nil
+}
+
+func (m *mockHandlerDB) GetHourlyAccountUsage(ctx context.Context, accountID uuid.UUID, start, end time.Time) ([]db.HourlyAccountUsage, error) {
+	return nil, nil
+}
+
+func (m *mockHandlerDB) GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, days int) ([]db.UsageMetric, error) {
+	return nil, nil
+}
+
+func (m *mockHandlerDB) GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]db.AccountCostTracking, error) {
+	return nil, nil
+}
+
 func TestGenerateSessionID(t *testing.T) {
 	// Test that session IDs have correct format
 	for i := 0; i < 10; i++ {

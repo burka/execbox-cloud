@@ -23,7 +23,7 @@ type APIKey struct {
 type Session struct {
 	ID           string            `json:"id"` // sess_xxx
 	APIKeyID     uuid.UUID         `json:"api_key_id"`
-	BackendID    *string           `json:"backend_id,omitempty"`    // Generic backend ID (pod name, machine ID, etc.)
+	BackendID    *string           `json:"backend_id,omitempty"`     // Generic backend ID (pod name, machine ID, etc.)
 	FlyMachineID *string           `json:"fly_machine_id,omitempty"` // Deprecated: Use BackendID instead
 	FlyAppID     *string           `json:"fly_app_id,omitempty"`
 	Image        string            `json:"image"`
@@ -69,13 +69,17 @@ type UsageMetric struct {
 
 // SessionUpdate holds fields that can be updated in a session.
 type SessionUpdate struct {
-	FlyMachineID *string    `json:"fly_machine_id,omitempty"`
-	FlyAppID     *string    `json:"fly_app_id,omitempty"`
-	Status       *string    `json:"status,omitempty"`
-	ExitCode     *int       `json:"exit_code,omitempty"`
-	Ports        []Port     `json:"ports,omitempty"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	EndedAt      *time.Time `json:"ended_at,omitempty"`
+	FlyMachineID      *string    `json:"fly_machine_id,omitempty"`
+	FlyAppID          *string    `json:"fly_app_id,omitempty"`
+	Status            *string    `json:"status,omitempty"`
+	ExitCode          *int       `json:"exit_code,omitempty"`
+	Ports             []Port     `json:"ports,omitempty"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	CostEstimateCents *int64     `json:"cost_estimate_cents,omitempty"`
+	CPUMillisUsed     *int64     `json:"cpu_millis_used,omitempty"`
+	MemoryPeakMB      *int64     `json:"memory_peak_mb,omitempty"`
+	DurationMs        *int64     `json:"duration_ms,omitempty"`
 }
 
 // QuotaRequest represents a request from a user for increased quota.
@@ -93,4 +97,46 @@ type QuotaRequest struct {
 	Notes           *string    `json:"notes,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	RespondedAt     *time.Time `json:"responded_at,omitempty"`
+}
+
+// AccountLimits represents account-level usage limits and billing configuration.
+type AccountLimits struct {
+	AccountID                uuid.UUID `json:"account_id"`
+	DailyRequestsLimit       int       `json:"daily_requests_limit"`               // -1 for unlimited
+	ConcurrentRequestsLimit  int       `json:"concurrent_requests_limit"`          // -1 for unlimited
+	MonthlyCostLimitCents    *int64    `json:"monthly_cost_limit_cents,omitempty"` // in cents for precision
+	AlertThresholdPercentage int       `json:"alert_threshold_percentage"`
+	BillingEmail             *string   `json:"billing_email,omitempty"`
+	Timezone                 string    `json:"timezone"`
+	UpdatedAt                time.Time `json:"updated_at"`
+	CreatedAt                time.Time `json:"created_at"`
+}
+
+// HourlyAccountUsage represents hourly usage metrics aggregated per account.
+type HourlyAccountUsage struct {
+	ID                int64     `json:"id"`
+	AccountID         uuid.UUID `json:"account_id"`
+	Hour              time.Time `json:"hour"`
+	Executions        int       `json:"executions"`
+	DurationMs        int64     `json:"duration_ms"`
+	CostEstimateCents int64     `json:"cost_estimate_cents"`
+	CPUMillisUsed     int64     `json:"cpu_millis_used"`
+	MemoryMBSeconds   int64     `json:"memory_mb_seconds"`
+	Errors            int       `json:"errors"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// AccountCostTracking tracks daily cost accumulation and billing period metrics per account.
+// Unique constraint: (account_id, date)
+type AccountCostTracking struct {
+	ID                 int64     `json:"id"`
+	AccountID          uuid.UUID `json:"account_id"`
+	Date               time.Time `json:"date"`
+	DailyCostCents     int       `json:"daily_cost_cents"`
+	DailyExecutions    int       `json:"daily_executions"`
+	BillingPeriodStart time.Time `json:"billing_period_start"`
+	BillingPeriodEnd   time.Time `json:"billing_period_end"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }

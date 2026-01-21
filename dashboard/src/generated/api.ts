@@ -44,6 +44,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/account/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get account limits
+         * @description Returns account-level limits including daily requests, concurrent sessions, and cost limits.
+         */
+        get: operations["getAccountLimits"];
+        /**
+         * Update account limits
+         * @description Updates account-level limits. Only specified fields will be modified.
+         */
+        put: operations["updateAccountLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/account/usage": {
         parameters: {
             query?: never;
@@ -56,6 +80,46 @@ export interface paths {
          * @description Returns usage statistics including sessions today, quota remaining, and limits.
          */
         get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/usage/enhanced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get enhanced usage statistics
+         * @description Returns detailed usage statistics with hourly breakdown, daily history, and cost estimates.
+         */
+        get: operations["getEnhancedUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/usage/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export usage data
+         * @description Exports daily usage data for the specified number of days in JSON or CSV format.
+         */
+        get: operations["exportUsage"];
         put?: never;
         post?: never;
         delete?: never;
@@ -132,32 +196,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/sessions/{id}/attach": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Attach to session I/O via WebSocket
-         * @description Upgrade to WebSocket for bidirectional stdin/stdout/stderr streaming.
-         *
-         *     **Protocol:** JSON messages with format `{"type": "...", "data": "..."}`
-         *
-         *     **Client → Server:** `stdin` (base64 data), `stdinClose`, `resize` (cols/rows)
-         *
-         *     **Server → Client:** `stdout`, `stderr` (base64 data), `exit` (code), `error` (msg)
-         */
-        get: operations["attachSession"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/sessions/{id}/stop": {
         parameters: {
             query?: never;
@@ -202,6 +240,48 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountLimitsResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/AccountLimitsResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Alert threshold percentage
+             * @example 85
+             */
+            alert_threshold: number;
+            /**
+             * @description Billing email address
+             * @example billing@example.com
+             */
+            billing_email?: string;
+            /**
+             * Format: int64
+             * @description Maximum concurrent requests
+             * @example 10
+             */
+            concurrent_requests_limit: number;
+            /**
+             * Format: int64
+             * @description Maximum daily requests
+             * @example 1000
+             */
+            daily_requests_limit: number;
+            /**
+             * Format: int64
+             * @description Monthly cost limit in cents
+             * @example 50000
+             */
+            monthly_cost_limit_cents?: number;
+            /**
+             * @description Account timezone
+             * @example UTC
+             */
+            timezone: string;
+        };
         AccountResponse: {
             /**
              * Format: uri
@@ -316,6 +396,125 @@ export interface components {
              */
             status: "pending" | "building" | "running" | "stopped" | "failed";
         };
+        DayUsage: {
+            /**
+             * Format: int64
+             * @description Cost in cents for this day
+             * @example 75
+             */
+            cost_cents: number;
+            /**
+             * @description Date in ISO8601 format
+             * @example 2024-01-15
+             */
+            date: string;
+            /**
+             * Format: int64
+             * @description Total execution duration in milliseconds
+             * @example 125000
+             */
+            duration_ms: number;
+            /**
+             * Format: int64
+             * @description Number of errors on this day
+             * @example 5
+             */
+            errors: number;
+            /**
+             * Format: int64
+             * @description Number of executions on this day
+             * @example 125
+             */
+            executions: number;
+        };
+        EnhancedUsageResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/EnhancedUsageResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Account identifier
+             * @example acc_123456
+             */
+            account_id: string;
+            /**
+             * Format: int64
+             * @description Number of currently running sessions
+             * @example 3
+             */
+            active_sessions: number;
+            /**
+             * Format: int64
+             * @description Alert threshold percentage
+             * @example 80
+             */
+            alert_threshold: number;
+            /**
+             * Format: int64
+             * @description Max concurrent sessions (-1 for unlimited)
+             * @example 5
+             */
+            concurrent_limit: number;
+            /**
+             * Format: int64
+             * @description Estimated cost in cents
+             * @example 150
+             */
+            cost_estimate_cents: number;
+            /** @description Daily usage history */
+            daily_history?: components["schemas"]["DayUsage"][] | null;
+            /**
+             * Format: int64
+             * @description Max sessions per day (-1 for unlimited)
+             * @example 100
+             */
+            daily_limit: number;
+            /** @description Hourly usage breakdown for the last 24 hours */
+            hourly_usage?: components["schemas"]["HourlyUsage"][] | null;
+            /**
+             * Format: int64
+             * @description Max session duration in seconds
+             * @example 3600
+             */
+            max_duration_seconds: number;
+            /**
+             * Format: int64
+             * @description Max memory per session in MB
+             * @example 512
+             */
+            max_memory_mb: number;
+            /**
+             * Format: int64
+             * @description Monthly cost limit in cents
+             * @example 10000
+             */
+            monthly_cost_limit_cents?: number;
+            /**
+             * Format: int64
+             * @description Daily quota remaining (-1 for unlimited)
+             * @example 58
+             */
+            quota_remaining: number;
+            /**
+             * Format: int64
+             * @description Daily quota used
+             * @example 42
+             */
+            quota_used: number;
+            /**
+             * Format: int64
+             * @description Number of sessions created today
+             * @example 42
+             */
+            sessions_today: number;
+            /**
+             * @description Account tier
+             * @example developer
+             */
+            tier: string;
+        };
         ErrorDetail: {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
             location?: string;
@@ -393,6 +592,31 @@ export interface components {
              * @example ok
              */
             status: string;
+        };
+        HourlyUsage: {
+            /**
+             * Format: int64
+             * @description Cost in cents for this hour
+             * @example 25
+             */
+            cost_cents: number;
+            /**
+             * Format: int64
+             * @description Number of errors in this hour
+             * @example 2
+             */
+            errors: number;
+            /**
+             * Format: int64
+             * @description Number of executions in this hour
+             * @example 42
+             */
+            executions: number;
+            /**
+             * @description Hour in ISO8601 format
+             * @example 2024-01-15T10:00:00Z
+             */
+            hour: string;
         };
         ListSessionsResponse: {
             /**
@@ -526,6 +750,48 @@ export interface components {
              */
             readonly $schema?: string;
             status: string;
+        };
+        UpdateAccountLimitsRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/UpdateAccountLimitsRequest.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Alert threshold percentage
+             * @example 90
+             */
+            alert_threshold?: number;
+            /**
+             * @description Billing email address
+             * @example new-billing@example.com
+             */
+            billing_email?: string;
+            /**
+             * Format: int64
+             * @description Maximum concurrent requests
+             * @example 20
+             */
+            concurrent_requests_limit?: number;
+            /**
+             * Format: int64
+             * @description Maximum daily requests
+             * @example 2000
+             */
+            daily_requests_limit?: number;
+            /**
+             * Format: int64
+             * @description Monthly cost limit in cents
+             * @example 100000
+             */
+            monthly_cost_limit_cents?: number;
+            /**
+             * @description Account timezone
+             * @example America/New_York
+             */
+            timezone?: string;
         };
         UsageResponse: {
             /**
@@ -702,6 +968,68 @@ export interface operations {
             };
         };
     };
+    getAccountLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountLimitsResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateAccountLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAccountLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountLimitsResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     getUsage: {
         parameters: {
             query?: never;
@@ -718,6 +1046,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UsageResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getEnhancedUsage: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Number of days to include in daily history
+                 * @example 7
+                 */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnhancedUsageResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    exportUsage: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Number of days to export
+                 * @example 30
+                 */
+                days?: number;
+                /** @description Export format */
+                format?: "json" | "csv";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayUsage"][] | null;
                 };
             };
             /** @description Error */
@@ -882,41 +1282,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    attachSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /**
-                 * @description Session ID
-                 * @example sess_abc123
-                 */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthCheckOutputBody"];
-                };
             };
             /** @description Error */
             default: {

@@ -276,3 +276,93 @@ type HealthCheckOutput struct {
 		Status string `json:"status" doc:"Health status" example:"ok"`
 	}
 }
+
+// --- Enhanced Usage Types ---
+
+// EnhancedUsageResponse defines an enhanced usage response with detailed metrics
+type EnhancedUsageResponse struct {
+	UsageResponse
+	AccountID             string        `json:"account_id" doc:"Account identifier" example:"acc_123456"`
+	HourlyUsage           []HourlyUsage `json:"hourly_usage,omitempty" doc:"Hourly usage breakdown for the last 24 hours"`
+	DailyHistory          []DayUsage    `json:"daily_history,omitempty" doc:"Daily usage history"`
+	CostEstimateCents     int64         `json:"cost_estimate_cents" doc:"Estimated cost in cents" example:"150"`
+	MonthlyCostLimitCents *int64        `json:"monthly_cost_limit_cents,omitempty" doc:"Monthly cost limit in cents" example:"10000"`
+	AlertThreshold        int           `json:"alert_threshold" doc:"Alert threshold percentage" example:"80"`
+}
+
+// HourlyUsage defines usage metrics for a single hour
+type HourlyUsage struct {
+	Hour       string `json:"hour" doc:"Hour in ISO8601 format" example:"2024-01-15T10:00:00Z"`
+	Executions int    `json:"executions" doc:"Number of executions in this hour" example:"42"`
+	CostCents  int64  `json:"cost_cents" doc:"Cost in cents for this hour" example:"25"`
+	Errors     int    `json:"errors" doc:"Number of errors in this hour" example:"2"`
+}
+
+// DayUsage defines usage metrics for a single day
+type DayUsage struct {
+	Date       string `json:"date" doc:"Date in ISO8601 format" example:"2024-01-15"`
+	Executions int    `json:"executions" doc:"Number of executions on this day" example:"125"`
+	DurationMs int64  `json:"duration_ms" doc:"Total execution duration in milliseconds" example:"125000"`
+	CostCents  int64  `json:"cost_cents" doc:"Cost in cents for this day" example:"75"`
+	Errors     int    `json:"errors" doc:"Number of errors on this day" example:"5"`
+}
+
+// AccountLimitsResponse defines the response for account limits
+type AccountLimitsResponse struct {
+	DailyRequestsLimit      int     `json:"daily_requests_limit" doc:"Maximum daily requests" example:"1000"`
+	ConcurrentRequestsLimit int     `json:"concurrent_requests_limit" doc:"Maximum concurrent requests" example:"10"`
+	MonthlyCostLimitCents   *int64  `json:"monthly_cost_limit_cents,omitempty" doc:"Monthly cost limit in cents" example:"50000"`
+	AlertThreshold          int     `json:"alert_threshold" doc:"Alert threshold percentage" example:"85"`
+	BillingEmail            *string `json:"billing_email,omitempty" doc:"Billing email address" example:"billing@example.com"`
+	Timezone                string  `json:"timezone" doc:"Account timezone" example:"UTC"`
+}
+
+// UpdateAccountLimitsRequest defines the request to update account limits
+type UpdateAccountLimitsRequest struct {
+	DailyRequestsLimit      *int    `json:"daily_requests_limit,omitempty" doc:"Maximum daily requests" example:"2000"`
+	ConcurrentRequestsLimit *int    `json:"concurrent_requests_limit,omitempty" doc:"Maximum concurrent requests" example:"20"`
+	MonthlyCostLimitCents   *int64  `json:"monthly_cost_limit_cents,omitempty" doc:"Monthly cost limit in cents" example:"100000"`
+	AlertThreshold          *int    `json:"alert_threshold,omitempty" doc:"Alert threshold percentage" example:"90"`
+	BillingEmail            *string `json:"billing_email,omitempty" doc:"Billing email address" example:"new-billing@example.com"`
+	Timezone                *string `json:"timezone,omitempty" doc:"Account timezone" example:"America/New_York"`
+}
+
+// GetEnhancedUsageInput is the input for GET /v1/account/enhanced-usage.
+type GetEnhancedUsageInput struct {
+	Days int `query:"days" doc:"Number of days to include in daily history" example:"7" default:"7" minimum:"1" maximum:"90"`
+}
+
+// GetEnhancedUsageOutput is the output for GET /v1/account/enhanced-usage.
+type GetEnhancedUsageOutput struct {
+	Body EnhancedUsageResponse
+}
+
+// GetAccountLimitsInput is the input for GET /v1/account/limits.
+type GetAccountLimitsInput struct {
+}
+
+// GetAccountLimitsOutput is the output for GET /v1/account/limits.
+type GetAccountLimitsOutput struct {
+	Body AccountLimitsResponse
+}
+
+// UpdateAccountLimitsInput is the input for PUT /v1/account/limits.
+type UpdateAccountLimitsInput struct {
+	Body UpdateAccountLimitsRequest
+}
+
+// UpdateAccountLimitsOutput is the output for PUT /v1/account/limits.
+type UpdateAccountLimitsOutput struct {
+	Body AccountLimitsResponse
+}
+
+// ExportUsageInput is the input for GET /v1/account/usage/export.
+type ExportUsageInput struct {
+	Days   int    `query:"days" doc:"Number of days to export" example:"30" default:"30" minimum:"1" maximum:"365"`
+	Format string `query:"format" doc:"Export format" enum:"json,csv" default:"json"`
+}
+
+// ExportUsageOutput is the output for GET /v1/account/usage/export.
+type ExportUsageOutput struct {
+	Body []DayUsage
+}

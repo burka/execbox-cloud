@@ -143,6 +143,50 @@ func registerAuthenticatedRoutes(humaAPI huma.API, router *chi.Mux, services *Se
 		Middlewares: huma.Middlewares{authMiddleware},
 	}, services.Account.GetUsage)
 
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "getEnhancedUsage",
+		Method:      "GET",
+		Path:        "/v1/account/usage/enhanced",
+		Summary:     "Get enhanced usage statistics",
+		Description: "Returns detailed usage statistics with hourly breakdown, daily history, and cost estimates.",
+		Tags:        []string{"Account"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.GetEnhancedUsage)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "getAccountLimits",
+		Method:      "GET",
+		Path:        "/v1/account/limits",
+		Summary:     "Get account limits",
+		Description: "Returns account-level limits including daily requests, concurrent sessions, and cost limits.",
+		Tags:        []string{"Account"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.GetAccountLimits)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "updateAccountLimits",
+		Method:      "PUT",
+		Path:        "/v1/account/limits",
+		Summary:     "Update account limits",
+		Description: "Updates account-level limits. Only specified fields will be modified.",
+		Tags:        []string{"Account"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.UpdateAccountLimits)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "exportUsage",
+		Method:      "GET",
+		Path:        "/v1/account/usage/export",
+		Summary:     "Export usage data",
+		Description: "Exports daily usage data for the specified number of days in JSON or CSV format.",
+		Tags:        []string{"Account"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.ExportUsage)
+
 	// Session operations
 	huma.Register(humaAPI, huma.Operation{
 		OperationID:   "createSession",

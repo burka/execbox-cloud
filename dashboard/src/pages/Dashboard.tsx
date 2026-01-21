@@ -1,62 +1,149 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { ApiClient, type AccountResponse, type UsageResponse } from '@/lib/api';
+import {
+  ApiClient,
+  type AccountResponse,
+  type UsageResponse,
+  type EnhancedUsageResponse,
+  type DayUsage
+} from '@/lib/api';
 import { getStoredApiKey, clearApiKey } from '@/lib/auth';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar
+} from 'recharts';
+
+
 
 export function Dashboard() {
   const [account, setAccount] = useState<AccountResponse | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
+  const [enhancedUsage, setEnhancedUsage] = useState<EnhancedUsageResponse | null>(null);
+  const [selectedDays, setSelectedDays] = useState<string>('7');
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const storedKey = getStoredApiKey();
-      if (!storedKey) {
-        navigate('/');
-        return;
-      }
+  const fetchData = useCallback(async (days: number = 7) => {
+    const storedKey = getStoredApiKey();
+    if (!storedKey) {
+      navigate('/');
+      return;
+    }
 
-      try {
-        const client = new ApiClient(storedKey);
-        const [accountInfo, usageStats] = await Promise.all([
-          client.getAccount(),
-          client.getUsage(),
-        ]);
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-        setAccount(accountInfo);
-        setUsage(usageStats);
-      } catch {
-        toast({
-          title: 'Error',
-          description: 'Failed to fetch account data. Please try logging in again.',
-          variant: 'destructive',
-        });
-        clearApiKey();
-        navigate('/');
-      } finally {
-        setIsLoading(false);
+    const fetchWithRetry = async (fn: () => Promise<any>, retries = 3): Promise<any> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await fn();
+        } catch (e) {
+          if (i === retries - 1) throw e;
+          await delay(1000 * Math.pow(2, i));
+        }
       }
+      throw new Error('Retry failed');
     };
 
-    fetchData();
+    try {
+      const client = new ApiClient(storedKey);
+      const [accountInfo, usageStats, enhancedStats] = await fetchWithRetry(() =>
+        Promise.all([
+          client.getAccount(),
+          client.getUsage(),
+          client.getEnhancedUsage(days),
+        ])
+      );
+
+      setAccount(accountInfo);
+      setUsage(usageStats);
+      setEnhancedUsage(enhancedStats);
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch account data. Please try logging in again.',
+        variant: 'destructive',
+      });
+      clearApiKey();
+      navigate('/');
+    } finally {
+      setIsLoading(false);
+    }
   }, [navigate, toast]);
 
+  useEffect(() => {
+    fetchData(parseInt(selectedDays));
+  }, [fetchData, selectedDays]);
+
+  const handleDaysChange = (value: string) => {
+    setSelectedDays(value);
+    setIsLoading(true);
+    fetchData(parseInt(value));
+  };
+
   const handleCopyApiKey = () => {
-    if (account?.api_key_preview) {
-      // We can only copy the preview since the full key is not stored
-      navigator.clipboard.writeText(account.api_key_preview);
+    const fullApiKey = getStoredApiKey();
+    
+    if (fullApiKey) {
+      navigator.clipboard.writeText(fullApiKey);
       toast({
-        title: 'Copied!',
-        description: 'API key preview copied to clipboard',
+        title: 'API key copied to clipboard',
+      });
+    } else {
+      toast({
+        title: 'Full API key only shown once at creation',
+        description: 'For security, the full API key is only available when you first create it.',
       });
     }
+  };
+
+  const handleExportUsage = async () => {
+    const storedKey = getStoredApiKey();
+    if (!storedKey) return;
+
+    try {
+      const client = new ApiClient(storedKey);
+      const data = await client.exportUsage(parseInt(selectedDays));
+
+      const csv = convertToCSV(data);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `usage-export-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Export Complete',
+        description: 'Usage data has been downloaded as CSV',
+      });
+    } catch {
+      toast({
+        title: 'Export Failed',
+        description: 'Failed to export usage data',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const convertToCSV = (data: DayUsage[]): string => {
+    const headers = ['Date', 'Executions', 'Duration (ms)', 'Cost (cents)', 'Errors'];
+    const rows = data.map(d => [d.date, d.executions, d.duration_ms, d.cost_cents, d.errors].join(','));
+    return [headers.join(','), ...rows].join('\n');
   };
 
   const handleLogout = () => {
@@ -64,7 +151,7 @@ export function Dashboard() {
     navigate('/');
   };
 
-  if (isLoading) {
+  if (isLoading && !account) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <p className="text-muted-foreground">Loading...</p>
@@ -76,7 +163,24 @@ export function Dashboard() {
   const quotaUsed = usage?.quota_used ?? 0;
   const dailyLimit = usage?.daily_limit ?? 0;
   const isUnlimited = dailyLimit === -1;
-  const quotaPercentage = isUnlimited ? 0 : ((quotaUsed / dailyLimit) * 100);
+  const quotaPercentage = isUnlimited || dailyLimit === 0 ? 0 : ((quotaUsed / dailyLimit) * 100);
+
+  // Prepare chart data
+  const dailyChartData = (enhancedUsage?.daily_history ?? [])
+    .slice()
+    .reverse()
+    .map(d => ({
+      date: d.date?.slice(5) || '', // Show MM-DD format
+      executions: d.executions ?? 0,
+      cost: (d.cost_cents ?? 0) / 100,
+    }));
+
+  const hourlyChartData = (enhancedUsage?.hourly_usage ?? []).map(h => ({
+    hour: h.hour?.slice(11, 16) || '', // Show HH:MM format
+    executions: h.executions ?? 0,
+  }));
+
+  const totalCost = (enhancedUsage?.cost_estimate_cents ?? 0) / 100;
 
   return (
     <div className="space-y-8">
@@ -177,6 +281,9 @@ export function Dashboard() {
               <div>
                 Max Memory: {usage?.max_memory_mb}MB
               </div>
+              <div>
+                Est. Cost: ${totalCost.toFixed(2)}
+              </div>
             </div>
             <div className="pt-2">
               <Link to="/request-quota">
@@ -188,6 +295,119 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Usage History Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Usage History</CardTitle>
+              <CardDescription>
+                Track your execution history and costs over time
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Select value={selectedDays} onValueChange={handleDaysChange}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">Last 7 days</SelectItem>
+                  <SelectItem value="30">Last 30 days</SelectItem>
+                  <SelectItem value="90">Last 90 days</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={handleExportUsage}>
+                Export CSV
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {dailyChartData.length > 0 ? (
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis
+                    dataKey="date"
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <YAxis
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '6px'
+                    }}
+                    labelStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="executions"
+                    stroke="hsl(var(--primary))"
+                    fill="hsl(var(--primary))"
+                    fillOpacity={0.3}
+                    name="Executions"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              No usage data available yet
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Hourly Activity Section */}
+      {hourlyChartData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Today's Activity</CardTitle>
+            <CardDescription>
+              Hourly breakdown of executions in the last 24 hours
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={hourlyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis
+                    dataKey="hour"
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <YAxis
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '6px'
+                    }}
+                    labelStyle={{ color: 'hsl(var(--foreground))' }}
+                  />
+                  <Bar
+                    dataKey="executions"
+                    fill="hsl(var(--primary))"
+                    radius={[4, 4, 0, 0]}
+                    name="Executions"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

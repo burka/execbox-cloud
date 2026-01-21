@@ -195,3 +195,25 @@ func (m *mockDB) CreateAPIKey(ctx context.Context, email string, name *string) (
 	m.apiKeys[key] = apiKey
 	return apiKey, nil
 }
+
+// Account-level usage query stubs
+
+func (m *mockDB) GetAccountLimits(ctx context.Context, accountID uuid.UUID) (*db.AccountLimits, error) {
+	return nil, fmt.Errorf("account limits not found")
+}
+
+func (m *mockDB) UpsertAccountLimits(ctx context.Context, limits *db.AccountLimits) error {
+	return nil
+}
+
+func (m *mockDB) GetHourlyAccountUsage(ctx context.Context, accountID uuid.UUID, start, end time.Time) ([]db.HourlyAccountUsage, error) {
+	return nil, nil
+}
+
+func (m *mockDB) GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, days int) ([]db.UsageMetric, error) {
+	return nil, nil
+}
+
+func (m *mockDB) GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]db.AccountCostTracking, error) {
+	return nil, nil
+}

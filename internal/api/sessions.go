@@ -380,6 +380,23 @@ func (s *SessionService) syncSessionStatus(ctx context.Context, session *db.Sess
 		if backendSession.Status == SessionStatusStopped || backendSession.Status == SessionStatusFailed {
 			now := time.Now().UTC()
 			update.EndedAt = &now
+
+			// Calculate duration from CreatedAt to now
+			durationMs := now.Sub(session.CreatedAt).Milliseconds()
+			update.DurationMs = &durationMs
+
+			// Calculate cost using default values since we don't have real metrics yet
+			// cpuMillis = durationMs (assumes 1 core)
+			// memoryMB = 256 (default container memory)
+			cpuMillis := durationMs
+			memoryMB := int64(256)
+
+			update.CPUMillisUsed = &cpuMillis
+			update.MemoryPeakMB = &memoryMB
+
+			// Calculate cost using DefaultCostCalculator
+			costEstimateCents := DefaultCostCalculator.CalculateSessionCost(durationMs, cpuMillis, memoryMB)
+			update.CostEstimateCents = &costEstimateCents
 		}
 
 		// Update the database

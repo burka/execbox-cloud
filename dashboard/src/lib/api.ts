@@ -9,13 +9,17 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 // Export types for use in components
 export type AccountResponse = components['schemas']['AccountResponse'];
 export type UsageResponse = components['schemas']['UsageResponse'];
-export type CreateKeyRequest = components['schemas']['CreateKeyRequest'];
-export type CreateKeyResponse = components['schemas']['CreateKeyResponse'];
+export type WaitlistRequest = components['schemas']['WaitlistRequest'];
+export type WaitlistResponse = components['schemas']['WaitlistResponse'];
 export type QuotaRequestRequest = components['schemas']['QuotaRequestRequest'];
 export type QuotaRequestResponse = components['schemas']['QuotaRequestResponse'];
 export type SessionResponse = components['schemas']['SessionResponse'];
 export type CreateSessionRequest = components['schemas']['CreateSessionRequest'];
 export type CreateSessionResponse = components['schemas']['CreateSessionResponse'];
+export type EnhancedUsageResponse = components['schemas']['EnhancedUsageResponse'];
+export type AccountLimitsResponse = components['schemas']['AccountLimitsResponse'];
+export type DayUsage = components['schemas']['DayUsage'];
+export type HourlyUsage = components['schemas']['HourlyUsage'];
 
 /**
  * Create a type-safe API client instance
@@ -28,16 +32,16 @@ export function createApiClient(apiKey?: string) {
 }
 
 /**
- * Create a new API key (public endpoint, no auth required)
+ * Join the waitlist and get an API key (public endpoint, no auth required)
  */
-export async function createApiKey(email: string, name?: string): Promise<CreateKeyResponse> {
+export async function joinWaitlist(email: string, name?: string): Promise<WaitlistResponse> {
   const client = createApiClient();
-  const { data, error } = await client.POST('/v1/keys', {
+  const { data, error } = await client.POST('/v1/waitlist', {
     body: { email, name },
   });
 
   if (error) {
-    throw new Error(error.detail || 'Failed to create API key');
+    throw new Error(error.detail || 'Failed to join waitlist');
   }
 
   return data!;
@@ -162,5 +166,48 @@ export class ApiClient {
     if (error) {
       throw new Error(error.detail || 'Failed to kill session');
     }
+  }
+
+  /**
+   * Get enhanced usage statistics with hourly and daily history
+   */
+  async getEnhancedUsage(days: number = 7): Promise<EnhancedUsageResponse> {
+    const { data, error } = await this.client.GET('/v1/account/usage/enhanced', {
+      params: { query: { days } },
+    });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to get enhanced usage stats');
+    }
+
+    return data!;
+  }
+
+  /**
+   * Get account limits
+   */
+  async getAccountLimits(): Promise<AccountLimitsResponse> {
+    const { data, error } = await this.client.GET('/v1/account/limits');
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to get account limits');
+    }
+
+    return data!;
+  }
+
+  /**
+   * Export usage data as array of daily usage
+   */
+  async exportUsage(days: number = 30): Promise<DayUsage[]> {
+    const { data, error } = await this.client.GET('/v1/account/usage/export', {
+      params: { query: { days } },
+    });
+
+    if (error) {
+      throw new Error(error.detail || 'Failed to export usage data');
+    }
+
+    return data!;
   }
 }

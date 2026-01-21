@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"github.com/burka/execbox-cloud/internal/db"
 	"github.com/google/uuid"
@@ -21,6 +22,13 @@ type DBClient interface {
 	GetActiveSessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error)
 	GetDailySessionCount(ctx context.Context, apiKeyID uuid.UUID) (int, error)
 	CreateQuotaRequest(ctx context.Context, req *db.QuotaRequest) (*db.QuotaRequest, error)
+
+	// Account-level usage queries
+	GetAccountLimits(ctx context.Context, accountID uuid.UUID) (*db.AccountLimits, error)
+	UpsertAccountLimits(ctx context.Context, limits *db.AccountLimits) error
+	GetHourlyAccountUsage(ctx context.Context, accountID uuid.UUID, start, end time.Time) ([]db.HourlyAccountUsage, error)
+	GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, days int) ([]db.UsageMetric, error)
+	GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]db.AccountCostTracking, error)
 }
 
 // Ensure *db.Client implements DBClient interface
