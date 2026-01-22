@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { setStoredApiKey, getStoredApiKey } from '@/lib/auth';
+import { joinWaitlist } from '@/lib/api';
 
 export function Landing() {
   const [showModal, setShowModal] = useState(false);
@@ -44,11 +45,17 @@ export function Landing() {
     setIsLoading(true);
 
     try {
-      // TODO: Create waitlist submission API call
-      // For now, just show success message
+      // Call the waitlist API
+      const response = await joinWaitlist(email, name);
+      
+      // Store the API key
+      setStoredApiKey(response.key);
+
+      // Show success message with API key
       toast({
-        title: 'You\'re on the waitlist!',
-        description: 'We\'ll notify you when your spot is available.',
+        title: 'Welcome to execbox-cloud!',
+        description: `Your API key: ${response.key}. Redirecting to dashboard...`,
+        duration: 5000,
       });
 
       // Reset form and close modal
@@ -59,6 +66,11 @@ export function Landing() {
       setUsageIntent('');
       setBudgetRange('');
       setShowModal(false);
+
+      // Redirect to dashboard after a short delay
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 1000);
     } catch (error) {
       toast({
         title: 'Error',
