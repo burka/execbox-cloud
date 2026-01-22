@@ -23,6 +23,7 @@ type APIKey struct {
 type Session struct {
 	ID           string            `json:"id"` // sess_xxx
 	APIKeyID     uuid.UUID         `json:"api_key_id"`
+	AccountID    uuid.UUID         `json:"account_id"`
 	BackendID    *string           `json:"backend_id,omitempty"`     // Generic backend ID (pod name, machine ID, etc.)
 	FlyMachineID *string           `json:"fly_machine_id,omitempty"` // Deprecated: Use BackendID instead
 	FlyAppID     *string           `json:"fly_app_id,omitempty"`

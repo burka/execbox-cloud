@@ -213,7 +213,8 @@ func (a *AccountService) GetEnhancedUsage(ctx context.Context, input *GetEnhance
 	var dailyAPIUsage []DayUsage
 	var totalCostEstimate int64
 	for _, d := range dailyUsage {
-		costCents := int64(d.DurationMs) * 1 / 1000 // Simple cost calculation (1 cent per second)
+		// Use consistent cost calculation - estimate with duration-based CPU usage
+		costCents := DefaultCostCalculator.CalculateSessionCost(d.DurationMs, d.DurationMs, 256)
 		totalCostEstimate += costCents
 
 		// Aggregate errors from hourly usage for this day
@@ -392,7 +393,8 @@ func (a *AccountService) ExportUsage(ctx context.Context, input *ExportUsageInpu
 	// Convert to API format
 	var dailyAPIUsage []DayUsage
 	for _, d := range dailyUsage {
-		costCents := int64(d.DurationMs) * 1 / 1000 // Simple cost calculation (1 cent per second)
+		// Use consistent cost calculation - estimate with duration-based CPU usage
+		costCents := DefaultCostCalculator.CalculateSessionCost(d.DurationMs, d.DurationMs, 256)
 
 		// Aggregate errors from hourly usage for this day
 		dayErrors := 0

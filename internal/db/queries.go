@@ -164,15 +164,16 @@ func (c *Client) CreateSession(ctx context.Context, sess *Session) error {
 
 	query := `
 		INSERT INTO sessions (
-			id, api_key_id, fly_machine_id, fly_app_id, image, command, env,
+			id, api_key_id, account_id, fly_machine_id, fly_app_id, image, command, env,
 			setup_hash, status, exit_code, ports, created_at, started_at, ended_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`
 
 	_, err = c.pool.Exec(ctx, query,
 		sess.ID,
 		sess.APIKeyID,
+		sess.AccountID,
 		sess.FlyMachineID,
 		sess.FlyAppID,
 		sess.Image,
@@ -197,7 +198,7 @@ func (c *Client) CreateSession(ctx context.Context, sess *Session) error {
 // GetSession retrieves a session by its ID.
 func (c *Client) GetSession(ctx context.Context, id string) (*Session, error) {
 	query := `
-		SELECT id, api_key_id, fly_machine_id, fly_app_id, image, command, env,
+		SELECT id, api_key_id, account_id, fly_machine_id, fly_app_id, image, command, env,
 		       setup_hash, status, exit_code, ports, created_at, started_at, ended_at
 		FROM sessions
 		WHERE id = $1
@@ -209,6 +210,7 @@ func (c *Client) GetSession(ctx context.Context, id string) (*Session, error) {
 	err := c.pool.QueryRow(ctx, query, id).Scan(
 		&sess.ID,
 		&sess.APIKeyID,
+		&sess.AccountID,
 		&sess.FlyMachineID,
 		&sess.FlyAppID,
 		&sess.Image,
@@ -259,7 +261,7 @@ func (c *Client) ListSessions(ctx context.Context, apiKeyID uuid.UUID, status *s
 
 	if status != nil {
 		query = `
-			SELECT id, api_key_id, fly_machine_id, fly_app_id, image, command, env,
+			SELECT id, api_key_id, account_id, fly_machine_id, fly_app_id, image, command, env,
 			       setup_hash, status, exit_code, ports, created_at, started_at, ended_at
 			FROM sessions
 			WHERE api_key_id = $1 AND status = $2
@@ -268,7 +270,7 @@ func (c *Client) ListSessions(ctx context.Context, apiKeyID uuid.UUID, status *s
 		args = []interface{}{apiKeyID, *status}
 	} else {
 		query = `
-			SELECT id, api_key_id, fly_machine_id, fly_app_id, image, command, env,
+			SELECT id, api_key_id, account_id, fly_machine_id, fly_app_id, image, command, env,
 			       setup_hash, status, exit_code, ports, created_at, started_at, ended_at
 			FROM sessions
 			WHERE api_key_id = $1
@@ -291,6 +293,7 @@ func (c *Client) ListSessions(ctx context.Context, apiKeyID uuid.UUID, status *s
 		err := rows.Scan(
 			&sess.ID,
 			&sess.APIKeyID,
+			&sess.AccountID,
 			&sess.FlyMachineID,
 			&sess.FlyAppID,
 			&sess.Image,

@@ -188,6 +188,7 @@ func (s *SessionService) CreateSession(ctx context.Context, input *CreateSession
 	session := &db.Session{
 		ID:           sessionID,
 		APIKeyID:     apiKeyID,
+		AccountID:    apiKeyID, // For now, account_id = api_key_id (single-key-per-account)
 		BackendID:    &backendID,
 		FlyMachineID: &backendID, // Also set for DB compatibility
 		Image:        resolvedImage,
