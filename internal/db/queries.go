@@ -12,28 +12,40 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// apiKeyColumns is the list of columns to select for API key queries
+const apiKeyColumns = `id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps,
+    created_at, last_used_at, name, description, is_active, expires_at,
+    parent_key_id, account_id, custom_daily_limit, custom_concurrent_limit,
+    last_updated_by, metadata`
+
+// scanAPIKey scans a database row into an APIKey struct
+func scanAPIKey(row interface{ Scan(...any) error }) (*APIKey, error) {
+	var key APIKey
+	err := row.Scan(
+		&key.ID, &key.Key, &key.Email, &key.Tier, &key.TierExpiresAt,
+		&key.TierUpdatedAt, &key.RateLimitRPS, &key.CreatedAt, &key.LastUsedAt,
+		&key.Name, &key.Description, &key.IsActive, &key.ExpiresAt,
+		&key.ParentKeyID, &key.AccountID, &key.CustomDailyLimit,
+		&key.CustomConcurrentLimit, &key.LastUpdatedBy, &key.Metadata,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &key, nil
+}
+
 // GetAPIKeyByKey retrieves an API key by its key string.
-// Returns an error if the key is not found or if the query fails.
+// Returns an error if the key is not found, deactivated, expired, or if the query fails.
 func (c *Client) GetAPIKeyByKey(ctx context.Context, key string) (*APIKey, error) {
-	query := `
-		SELECT id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM api_keys
 		WHERE key = $1
-	`
+		  AND is_active = true
+		  AND (expires_at IS NULL OR expires_at > NOW())
+	`, apiKeyColumns)
 
-	var apiKey APIKey
-	err := c.pool.QueryRow(ctx, query, key).Scan(
-		&apiKey.ID,
-		&apiKey.Key,
-		&apiKey.Email,
-		&apiKey.Tier,
-		&apiKey.TierExpiresAt,
-		&apiKey.TierUpdatedAt,
-		&apiKey.RateLimitRPS,
-		&apiKey.CreatedAt,
-		&apiKey.LastUsedAt,
-	)
-
+	apiKey, err := scanAPIKey(c.pool.QueryRow(ctx, query, key))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("API key not found")
@@ -41,31 +53,19 @@ func (c *Client) GetAPIKeyByKey(ctx context.Context, key string) (*APIKey, error
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
 
-	return &apiKey, nil
+	return apiKey, nil
 }
 
 // GetAPIKeyByID retrieves an API key by its ID.
-// Returns an error if the key is not found or if the query fails.
+// Returns the key regardless of active/expired status (for management operations).
 func (c *Client) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*APIKey, error) {
-	query := `
-		SELECT id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM api_keys
 		WHERE id = $1
-	`
+	`, apiKeyColumns)
 
-	var apiKey APIKey
-	err := c.pool.QueryRow(ctx, query, id).Scan(
-		&apiKey.ID,
-		&apiKey.Key,
-		&apiKey.Email,
-		&apiKey.Tier,
-		&apiKey.TierExpiresAt,
-		&apiKey.TierUpdatedAt,
-		&apiKey.RateLimitRPS,
-		&apiKey.CreatedAt,
-		&apiKey.LastUsedAt,
-	)
-
+	apiKey, err := scanAPIKey(c.pool.QueryRow(ctx, query, id))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("API key not found")
@@ -73,11 +73,12 @@ func (c *Client) GetAPIKeyByID(ctx context.Context, id uuid.UUID) (*APIKey, erro
 		return nil, fmt.Errorf("failed to get API key: %w", err)
 	}
 
-	return &apiKey, nil
+	return apiKey, nil
 }
 
 // CreateAPIKey creates a new API key for the given email with free tier.
 // Returns the created API key with a newly generated key string.
+// This creates the primary key for a new account (account_id = key id).
 func (c *Client) CreateAPIKey(ctx context.Context, email string, name *string) (*APIKey, error) {
 	// Generate a secure random API key
 	keyBytes := make([]byte, 32)
@@ -86,25 +87,16 @@ func (c *Client) CreateAPIKey(ctx context.Context, email string, name *string) (
 	}
 	key := fmt.Sprintf("sk_%s", hex.EncodeToString(keyBytes))
 
-	query := `
-		INSERT INTO api_keys (id, key, email, tier, rate_limit_rps, created_at)
-		VALUES ($1, $2, $3, 'free', 10, NOW())
-		RETURNING id, key, email, tier, tier_expires_at, tier_updated_at, rate_limit_rps, created_at, last_used_at
-	`
+	// For primary keys, account_id equals the key's own ID
+	keyID := uuid.New()
 
-	var apiKey APIKey
-	err := c.pool.QueryRow(ctx, query, uuid.New(), key, email).Scan(
-		&apiKey.ID,
-		&apiKey.Key,
-		&apiKey.Email,
-		&apiKey.Tier,
-		&apiKey.TierExpiresAt,
-		&apiKey.TierUpdatedAt,
-		&apiKey.RateLimitRPS,
-		&apiKey.CreatedAt,
-		&apiKey.LastUsedAt,
-	)
+	query := fmt.Sprintf(`
+		INSERT INTO api_keys (id, key, email, tier, rate_limit_rps, is_active, account_id, created_at)
+		VALUES ($1, $2, $3, 'free', 10, true, $1, NOW())
+		RETURNING %s
+	`, apiKeyColumns)
 
+	apiKey, err := scanAPIKey(c.pool.QueryRow(ctx, query, keyID, key, email))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create API key: %w", err)
 	}
@@ -121,7 +113,7 @@ func (c *Client) CreateAPIKey(ctx context.Context, email string, name *string) (
 		fmt.Printf("Warning: failed to create default account limits for %s: %v\n", apiKey.ID, limitsErr)
 	}
 
-	return &apiKey, nil
+	return apiKey, nil
 }
 
 // UpdateAPIKeyLastUsed updates the last_used_at timestamp for an API key.
@@ -815,4 +807,212 @@ func (c *Client) GetAccountCostTracking(ctx context.Context, accountID uuid.UUID
 	}
 
 	return tracking, nil
+}
+
+// ============================================================================
+// Multi-Key Management Queries
+// ============================================================================
+
+// GetAPIKeysByAccount retrieves all API keys owned by an account.
+// Returns all keys including deactivated/expired ones (for management display).
+func (c *Client) GetAPIKeysByAccount(ctx context.Context, accountID uuid.UUID) ([]APIKey, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM api_keys
+		WHERE account_id = $1
+		ORDER BY created_at ASC
+	`, apiKeyColumns)
+
+	rows, err := c.pool.Query(ctx, query, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get API keys for account: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []APIKey
+	for rows.Next() {
+		k, err := scanAPIKey(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan API key row: %w", err)
+		}
+		keys = append(keys, *k)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating API keys: %w", err)
+	}
+
+	return keys, nil
+}
+
+// CreateAPIKeyForAccount creates a new API key for an existing account.
+// The new key inherits tier settings from the parent key.
+func (c *Client) CreateAPIKeyForAccount(ctx context.Context, accountID uuid.UUID, name, description string, parentKeyID uuid.UUID) (*APIKey, error) {
+	// Generate a secure random API key
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
+	key := fmt.Sprintf("sk_%s", hex.EncodeToString(keyBytes))
+
+	query := fmt.Sprintf(`
+		INSERT INTO api_keys (id, key, email, tier, rate_limit_rps, is_active, account_id, parent_key_id, name, description, created_at)
+		SELECT $1, $2, email, tier, rate_limit_rps, true, $3, $4, $5, $6, NOW()
+		FROM api_keys
+		WHERE id = $4
+		RETURNING %s
+	`, apiKeyColumns)
+
+	apiKey, err := scanAPIKey(c.pool.QueryRow(ctx, query, uuid.New(), key, accountID, parentKeyID, name, description))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API key for account: %w", err)
+	}
+
+	return apiKey, nil
+}
+
+// UpdateAPIKey updates an API key's fields.
+// Only non-nil fields in the update struct will be changed.
+func (c *Client) UpdateAPIKey(ctx context.Context, keyID uuid.UUID, update *APIKeyUpdate) error {
+	query := "UPDATE api_keys SET"
+	args := []interface{}{}
+	argPos := 1
+	updates := []string{}
+
+	if update.Name != nil {
+		updates = append(updates, fmt.Sprintf(" name = $%d", argPos))
+		args = append(args, *update.Name)
+		argPos++
+	}
+
+	if update.Description != nil {
+		updates = append(updates, fmt.Sprintf(" description = $%d", argPos))
+		args = append(args, *update.Description)
+		argPos++
+	}
+
+	if update.IsActive != nil {
+		updates = append(updates, fmt.Sprintf(" is_active = $%d", argPos))
+		args = append(args, *update.IsActive)
+		argPos++
+	}
+
+	if update.ExpiresAt != nil {
+		updates = append(updates, fmt.Sprintf(" expires_at = $%d", argPos))
+		args = append(args, *update.ExpiresAt)
+		argPos++
+	}
+
+	if update.CustomDailyLimit != nil {
+		updates = append(updates, fmt.Sprintf(" custom_daily_limit = $%d", argPos))
+		args = append(args, *update.CustomDailyLimit)
+		argPos++
+	}
+
+	if update.CustomConcurrentLimit != nil {
+		updates = append(updates, fmt.Sprintf(" custom_concurrent_limit = $%d", argPos))
+		args = append(args, *update.CustomConcurrentLimit)
+		argPos++
+	}
+
+	if update.LastUpdatedBy != nil {
+		updates = append(updates, fmt.Sprintf(" last_updated_by = $%d", argPos))
+		args = append(args, *update.LastUpdatedBy)
+		argPos++
+	}
+
+	if len(updates) == 0 {
+		return fmt.Errorf("no fields to update")
+	}
+
+	// Complete the query
+	for i, u := range updates {
+		if i > 0 {
+			query += ","
+		}
+		query += u
+	}
+	query += fmt.Sprintf(" WHERE id = $%d", argPos)
+	args = append(args, keyID)
+
+	result, err := c.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update API key: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("API key not found")
+	}
+
+	return nil
+}
+
+// DeactivateAPIKey soft-deletes an API key by setting is_active=false.
+// Also records who performed the action in last_updated_by.
+func (c *Client) DeactivateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) error {
+	query := `
+		UPDATE api_keys
+		SET is_active = false, last_updated_by = $2
+		WHERE id = $1
+	`
+
+	result, err := c.pool.Exec(ctx, query, keyID, performedBy)
+	if err != nil {
+		return fmt.Errorf("failed to deactivate API key: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("API key not found")
+	}
+
+	return nil
+}
+
+// RotateAPIKey creates a new key value while preserving the key's settings.
+// Returns the updated key with the new key value.
+func (c *Client) RotateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) (*APIKey, error) {
+	// Generate a new secure random API key
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate API key: %w", err)
+	}
+	newKey := fmt.Sprintf("sk_%s", hex.EncodeToString(keyBytes))
+
+	query := fmt.Sprintf(`
+		UPDATE api_keys
+		SET key = $2, last_updated_by = $3
+		WHERE id = $1
+		RETURNING %s
+	`, apiKeyColumns)
+
+	apiKey, err := scanAPIKey(c.pool.QueryRow(ctx, query, keyID, newKey, performedBy))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("API key not found")
+		}
+		return nil, fmt.Errorf("failed to rotate API key: %w", err)
+	}
+
+	return apiKey, nil
+}
+
+// IsPrimaryKey checks if the given key is the primary key for its account.
+// Primary keys have account_id equal to their own ID (or no parent_key_id).
+func (c *Client) IsPrimaryKey(ctx context.Context, keyID uuid.UUID) (bool, error) {
+	query := `
+		SELECT account_id = id OR parent_key_id IS NULL
+		FROM api_keys
+		WHERE id = $1
+	`
+
+	var isPrimary bool
+	err := c.pool.QueryRow(ctx, query, keyID).Scan(&isPrimary)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, fmt.Errorf("API key not found")
+		}
+		return false, fmt.Errorf("failed to check if primary key: %w", err)
+	}
+
+	return isPrimary, nil
 }
