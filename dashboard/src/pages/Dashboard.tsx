@@ -11,7 +11,8 @@ import {
   type AccountResponse,
   type UsageResponse,
   type EnhancedUsageResponse,
-  type DayUsage
+  type DayUsage,
+  type SessionResponse
 } from '@/lib/api';
 import { getStoredApiKey, clearApiKey } from '@/lib/auth';
 import {
@@ -32,6 +33,7 @@ export function Dashboard() {
   const [account, setAccount] = useState<AccountResponse | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [enhancedUsage, setEnhancedUsage] = useState<EnhancedUsageResponse | null>(null);
+  const [sessions, setSessions] = useState<SessionResponse[]>([]);
   const [selectedDays, setSelectedDays] = useState<string>('7');
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
@@ -46,7 +48,7 @@ export function Dashboard() {
 
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const fetchWithRetry = async (fn: () => Promise<any>, retries = 3): Promise<any> => {
+    const fetchWithRetry = async <T,>(fn: () => Promise<T>, retries = 3): Promise<T> => {
       for (let i = 0; i < retries; i++) {
         try {
           return await fn();
@@ -60,17 +62,19 @@ export function Dashboard() {
 
     try {
       const client = new ApiClient(storedKey);
-      const [accountInfo, usageStats, enhancedStats] = await fetchWithRetry(() =>
+      const [accountInfo, usageStats, enhancedStats, sessionsList] = await fetchWithRetry(() =>
         Promise.all([
           client.getAccount(),
           client.getUsage(),
           client.getEnhancedUsage(days),
+          client.listSessions(),
         ])
       );
 
       setAccount(accountInfo);
       setUsage(usageStats);
       setEnhancedUsage(enhancedStats);
+      setSessions(sessionsList);
     } catch {
       toast({
         title: 'Error',
@@ -96,7 +100,7 @@ export function Dashboard() {
 
   const handleCopyApiKey = () => {
     const fullApiKey = getStoredApiKey();
-    
+
     if (fullApiKey) {
       navigator.clipboard.writeText(fullApiKey);
       toast({
@@ -149,6 +153,48 @@ export function Dashboard() {
   const handleLogout = () => {
     clearApiKey();
     navigate('/');
+  };
+
+  const handleStopSession = async (id: string) => {
+    const storedKey = getStoredApiKey();
+    if (!storedKey) return;
+
+    try {
+      const client = new ApiClient(storedKey);
+      await client.stopSession(id);
+      toast({
+        title: 'Session stopped',
+        description: `Session ${id.slice(0, 8)} has been stopped`,
+      });
+      await fetchData(parseInt(selectedDays));
+    } catch {
+      toast({
+        title: 'Failed to stop session',
+        description: 'An error occurred while stopping the session',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleKillSession = async (id: string) => {
+    const storedKey = getStoredApiKey();
+    if (!storedKey) return;
+
+    try {
+      const client = new ApiClient(storedKey);
+      await client.killSession(id);
+      toast({
+        title: 'Session killed',
+        description: `Session ${id.slice(0, 8)} has been killed`,
+      });
+      await fetchData(parseInt(selectedDays));
+    } catch {
+      toast({
+        title: 'Failed to kill session',
+        description: 'An error occurred while killing the session',
+        variant: 'destructive',
+      });
+    }
   };
 
   if (isLoading && !account) {
@@ -408,6 +454,84 @@ export function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Sessions Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sessions</CardTitle>
+          <CardDescription>
+            Your active and recent sessions
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sessions.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2 font-medium">ID</th>
+                    <th className="text-left py-2 px-2 font-medium">Status</th>
+                    <th className="text-left py-2 px-2 font-medium">Image</th>
+                    <th className="text-left py-2 px-2 font-medium">Created</th>
+                    <th className="text-right py-2 px-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((session) => (
+                    <tr key={session.id} className="border-b last:border-0">
+                      <td className="py-3 px-2 font-mono text-xs">
+                        {session.id.slice(0, 8)}
+                      </td>
+                      <td className="py-3 px-2">
+                        <span
+                          className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                            session.status === 'running'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : session.status === 'stopped'
+                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+                          }`}
+                        >
+                          {session.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-muted-foreground">
+                        {session.image}
+                      </td>
+                      <td className="py-3 px-2 text-muted-foreground">
+                        {new Date(session.createdAt).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleStopSession(session.id)}
+                            disabled={session.status !== 'running'}
+                          >
+                            Stop
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleKillSession(session.id)}
+                          >
+                            Kill
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No sessions
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

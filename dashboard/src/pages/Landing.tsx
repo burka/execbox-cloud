@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { setStoredApiKey, getStoredApiKey } from '@/lib/auth';
-import { joinWaitlist } from '@/lib/api';
+import { joinWaitlist, ApiClient } from '@/lib/api';
 
 export function Landing() {
   const [showModal, setShowModal] = useState(false);
@@ -87,8 +87,21 @@ export function Landing() {
     setIsLoading(true);
 
     try {
-      // Store the key and validate by navigating to dashboard
-      // The dashboard will validate the key
+      // Basic format validation
+      if (!existingKey.startsWith('sk_')) {
+        toast({
+          title: 'Invalid API key format',
+          description: 'API keys start with sk_',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Validate the key by calling the API
+      const client = new ApiClient(existingKey);
+      await client.getAccount();
+
+      // If validation succeeds, store the key
       setStoredApiKey(existingKey);
 
       toast({
@@ -99,6 +112,12 @@ export function Landing() {
       setTimeout(() => {
         navigate('/dashboard');
       }, 500);
+    } catch (error) {
+      toast({
+        title: 'Authentication failed',
+        description: error instanceof Error ? error.message : 'Invalid API key',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
