@@ -50,6 +50,14 @@ func (m *extendedMockHandlerDB) UpsertAccountLimits(ctx context.Context, limits 
 	return nil
 }
 
+func (m *extendedMockHandlerDB) UpdateAPIKey(ctx context.Context, keyID uuid.UUID, update *db.APIKeyUpdate) error {
+	// Check if updateErr is set before calling the parent implementation
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	return m.mockHandlerDB.UpdateAPIKey(ctx, keyID, update)
+}
+
 func TestAccountService_GetEnhancedUsage_Success(t *testing.T) {
 	mockDB := newExtendedMockHandlerDB()
 
@@ -372,4 +380,434 @@ func TestAccountService_GetAccountLimits_Unauthorized(t *testing.T) {
 	// Should return 401 unauthorized error
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unauthorized")
+}
+
+// ============================================================================
+// CreateAPIKey Error Handling Tests
+// ============================================================================
+
+func TestAccountService_CreateAPIKey_UpdateFails_CleanupKey(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	// Set up primary API key
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	// Make UpdateAPIKey fail
+	mockDB.updateErr = fmt.Errorf("database update failed")
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	dailyLimit := 100
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:             "test-key",
+			CustomDailyLimit: &dailyLimit,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	// Should return error with context about update failure
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to configure API key")
+
+	// The created key should have been deactivated (cleanup)
+	var createdKey *db.APIKey
+	for _, k := range mockDB.apiKeysByString {
+		if k.AccountID == accountID && k.ParentKeyID != nil {
+			createdKey = k
+			break
+		}
+	}
+
+	require.NotNil(t, createdKey, "newly created key should exist")
+	assert.False(t, createdKey.IsActive, "newly created key should be deactivated after update failure")
+}
+
+// ============================================================================
+// CreateAPIKey Input Validation Tests
+// ============================================================================
+
+func TestAccountService_CreateAPIKey_InvalidNameLength_TooLong(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	// Name longer than 100 characters
+	longName := string(make([]byte, 101))
+	for i := range longName {
+		longName = longName[:i] + "a" + longName[i+1:]
+	}
+	longName = "a" + longName[:100] // Make it exactly 101 chars
+
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name: longName,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name must be 100 characters or less")
+}
+
+func TestAccountService_CreateAPIKey_InvalidDescriptionLength_TooLong(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	// Description longer than 500 characters
+	longDesc := string(make([]byte, 501))
+	for i := range longDesc {
+		longDesc = longDesc[:i] + "a" + longDesc[i+1:]
+	}
+
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:        "valid-name",
+			Description: &longDesc,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "description must be 500 characters or less")
+}
+
+func TestAccountService_CreateAPIKey_InvalidCustomDailyLimit_Zero(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	zeroLimit := 0
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:             "valid-name",
+			CustomDailyLimit: &zeroLimit,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_daily_limit must be greater than 0")
+}
+
+func TestAccountService_CreateAPIKey_InvalidCustomDailyLimit_Negative(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	negLimit := -100
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:             "valid-name",
+			CustomDailyLimit: &negLimit,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_daily_limit must be greater than 0")
+}
+
+func TestAccountService_CreateAPIKey_InvalidCustomConcurrentLimit_Zero(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	zeroLimit := 0
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:                  "valid-name",
+			CustomConcurrentLimit: &zeroLimit,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_concurrent_limit must be greater than 0")
+}
+
+func TestAccountService_CreateAPIKey_InvalidCustomConcurrentLimit_Negative(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	negLimit := -50
+	input := &CreateAPIKeyInput{
+		Body: CreateAPIKeyRequest{
+			Name:                  "valid-name",
+			CustomConcurrentLimit: &negLimit,
+		},
+	}
+
+	_, err := service.CreateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_concurrent_limit must be greater than 0")
+}
+
+// ============================================================================
+// UpdateAPIKey Input Validation Tests
+// ============================================================================
+
+func TestAccountService_UpdateAPIKey_InvalidNameLength_TooLong(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	targetKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	originalName := "original-name"
+	targetKey := &db.APIKey{
+		ID:        targetKeyID,
+		Key:       "sk_test_target",
+		Name:      &originalName,
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+	mockDB.apiKeysByString["sk_test_target"] = targetKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	longName := "a"
+	for i := 0; i < 101; i++ {
+		longName += "a"
+	}
+
+	input := &UpdateAPIKeyInput{
+		ID: targetKeyID.String(),
+		Body: UpdateAPIKeyRequest{
+			Name: &longName,
+		},
+	}
+
+	_, err := service.UpdateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name must be 100 characters or less")
+}
+
+func TestAccountService_UpdateAPIKey_InvalidDescriptionLength_TooLong(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	targetKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	targetKey := &db.APIKey{
+		ID:        targetKeyID,
+		Key:       "sk_test_target",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+	mockDB.apiKeysByString["sk_test_target"] = targetKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	longDesc := "a"
+	for i := 0; i < 501; i++ {
+		longDesc += "a"
+	}
+
+	input := &UpdateAPIKeyInput{
+		ID: targetKeyID.String(),
+		Body: UpdateAPIKeyRequest{
+			Description: &longDesc,
+		},
+	}
+
+	_, err := service.UpdateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "description must be 500 characters or less")
+}
+
+func TestAccountService_UpdateAPIKey_InvalidCustomDailyLimit_Zero(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	targetKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	targetKey := &db.APIKey{
+		ID:        targetKeyID,
+		Key:       "sk_test_target",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+	mockDB.apiKeysByString["sk_test_target"] = targetKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	zeroLimit := 0
+	input := &UpdateAPIKeyInput{
+		ID: targetKeyID.String(),
+		Body: UpdateAPIKeyRequest{
+			CustomDailyLimit: &zeroLimit,
+		},
+	}
+
+	_, err := service.UpdateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_daily_limit must be greater than 0")
+}
+
+func TestAccountService_UpdateAPIKey_InvalidCustomConcurrentLimit_Negative(t *testing.T) {
+	mockDB := newExtendedMockHandlerDB()
+	currentKeyID := uuid.New()
+	targetKeyID := uuid.New()
+	accountID := uuid.New()
+
+	currentKey := &db.APIKey{
+		ID:        currentKeyID,
+		Key:       "sk_test_primary",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+	targetKey := &db.APIKey{
+		ID:        targetKeyID,
+		Key:       "sk_test_target",
+		Tier:      "free",
+		IsActive:  true,
+		AccountID: accountID,
+	}
+
+	mockDB.apiKeysByString["sk_test_primary"] = currentKey
+	mockDB.apiKeysByString["sk_test_target"] = targetKey
+
+	service := NewAccountService(mockDB)
+	ctx := WithAPIKeyID(context.Background(), currentKeyID)
+
+	negLimit := -10
+	input := &UpdateAPIKeyInput{
+		ID: targetKeyID.String(),
+		Body: UpdateAPIKeyRequest{
+			CustomConcurrentLimit: &negLimit,
+		},
+	}
+
+	_, err := service.UpdateAPIKey(ctx, input)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_concurrent_limit must be greater than 0")
 }
