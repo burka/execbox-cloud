@@ -245,6 +245,76 @@ func registerAuthenticatedRoutes(humaAPI huma.API, router *chi.Mux, services *Se
 		Middlewares:   huma.Middlewares{authMiddleware},
 	}, services.Session.KillSession)
 
+	// API Key management operations
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "listAPIKeys",
+		Method:      "GET",
+		Path:        "/v1/account/keys",
+		Summary:     "List API keys",
+		Description: "Returns all API keys for the authenticated account, including their status and settings.",
+		Tags:        []string{"API Keys"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.ListAPIKeys)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID:   "createAPIKey",
+		Method:        "POST",
+		Path:          "/v1/account/keys",
+		Summary:       "Create API key",
+		Description:   "Creates a new API key for the account. The full key is only shown once in the response.",
+		Tags:          []string{"API Keys"},
+		Security:      securityRequirement,
+		DefaultStatus: 201,
+		Middlewares:   huma.Middlewares{authMiddleware},
+	}, services.Account.CreateAPIKey)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "getAPIKey",
+		Method:      "GET",
+		Path:        "/v1/account/keys/{id}",
+		Summary:     "Get API key",
+		Description: "Returns details for a specific API key.",
+		Tags:        []string{"API Keys"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.GetAPIKey)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID: "updateAPIKey",
+		Method:      "PUT",
+		Path:        "/v1/account/keys/{id}",
+		Summary:     "Update API key",
+		Description: "Updates an API key's name, description, limits, or expiration. Only specified fields are modified.",
+		Tags:        []string{"API Keys"},
+		Security:    securityRequirement,
+		Middlewares: huma.Middlewares{authMiddleware},
+	}, services.Account.UpdateAPIKey)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID:   "deleteAPIKey",
+		Method:        "DELETE",
+		Path:          "/v1/account/keys/{id}",
+		Summary:       "Delete API key",
+		Description:   "Deactivates an API key. The primary account key cannot be deleted.",
+		Tags:          []string{"API Keys"},
+		Security:      securityRequirement,
+		DefaultStatus: 204,
+		Middlewares:   huma.Middlewares{authMiddleware},
+	}, services.Account.DeleteAPIKey)
+
+	huma.Register(humaAPI, huma.Operation{
+		OperationID:   "rotateAPIKey",
+		Method:        "POST",
+		Path:          "/v1/account/keys/{id}/rotate",
+		Summary:       "Rotate API key",
+		Description:   "Generates a new key value for an API key while preserving its settings. The old key immediately becomes invalid.",
+		Tags:          []string{"API Keys"},
+		Security:      securityRequirement,
+		DefaultStatus: 200,
+		Middlewares:   huma.Middlewares{authMiddleware},
+	}, services.Account.RotateAPIKey)
+
 	// Note: WebSocket attach endpoint (/v1/sessions/{id}/attach) is registered
 	// via chi directly in server.go because WebSocket upgrades don't work well
 	// with huma's response handling. OpenAPI docs for it should be added manually

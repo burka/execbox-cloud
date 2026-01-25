@@ -25,6 +25,12 @@ export function Layout({ children }: LayoutProps) {
                   Dashboard
                 </Link>
                 <Link
+                  to="/keys"
+                  className="text-sm font-medium hover:text-primary"
+                >
+                  API Keys
+                </Link>
+                <Link
                   to="/request-quota"
                   className="text-sm font-medium hover:text-primary"
                 >

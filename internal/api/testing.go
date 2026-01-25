@@ -217,3 +217,124 @@ func (m *mockDB) GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, 
 func (m *mockDB) GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]db.AccountCostTracking, error) {
 	return nil, nil
 }
+
+// Multi-key management stubs
+
+func (m *mockDB) GetAPIKeysByAccount(ctx context.Context, accountID uuid.UUID) ([]db.APIKey, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var keys []db.APIKey
+	for _, apiKey := range m.apiKeys {
+		if apiKey.AccountID == accountID {
+			keyCopy := *apiKey
+			keys = append(keys, keyCopy)
+		}
+	}
+	return keys, nil
+}
+
+func (m *mockDB) CreateAPIKeyForAccount(ctx context.Context, accountID uuid.UUID, name, description string, parentKeyID uuid.UUID) (*db.APIKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("sk_test_%s", randHex(32))
+	apiKey := &db.APIKey{
+		ID:          uuid.New(),
+		Key:         key,
+		Tier:        "free",
+		RateLimitRPS: 10,
+		CreatedAt:   time.Now().UTC(),
+		IsActive:    true,
+		AccountID:   accountID,
+		ParentKeyID: &parentKeyID,
+		Name:        &name,
+		Description: &description,
+	}
+	m.apiKeys[key] = apiKey
+	return apiKey, nil
+}
+
+func (m *mockDB) UpdateAPIKey(ctx context.Context, keyID uuid.UUID, update *db.APIKeyUpdate) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, apiKey := range m.apiKeys {
+		if apiKey.ID == keyID {
+			if update.Name != nil {
+				apiKey.Name = update.Name
+			}
+			if update.Description != nil {
+				apiKey.Description = update.Description
+			}
+			if update.IsActive != nil {
+				apiKey.IsActive = *update.IsActive
+			}
+			if update.ExpiresAt != nil {
+				apiKey.ExpiresAt = update.ExpiresAt
+			}
+			if update.CustomDailyLimit != nil {
+				apiKey.CustomDailyLimit = update.CustomDailyLimit
+			}
+			if update.CustomConcurrentLimit != nil {
+				apiKey.CustomConcurrentLimit = update.CustomConcurrentLimit
+			}
+			if update.LastUpdatedBy != nil {
+				apiKey.LastUpdatedBy = update.LastUpdatedBy
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+func (m *mockDB) DeactivateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, apiKey := range m.apiKeys {
+		if apiKey.ID == keyID {
+			apiKey.IsActive = false
+			apiKey.LastUpdatedBy = &performedBy
+			return nil
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+func (m *mockDB) RotateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) (*db.APIKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for oldKey, apiKey := range m.apiKeys {
+		if apiKey.ID == keyID {
+			// Remove old key mapping
+			delete(m.apiKeys, oldKey)
+
+			// Generate new key
+			newKey := fmt.Sprintf("sk_test_%s", randHex(32))
+			apiKey.Key = newKey
+			apiKey.LastUpdatedBy = &performedBy
+
+			// Store with new key
+			m.apiKeys[newKey] = apiKey
+
+			keyCopy := *apiKey
+			return &keyCopy, nil
+		}
+	}
+	return nil, fmt.Errorf("API key not found")
+}
+
+func (m *mockDB) IsPrimaryKey(ctx context.Context, keyID uuid.UUID) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, apiKey := range m.apiKeys {
+		if apiKey.ID == keyID {
+			// Primary keys have account_id == their own ID, or no parent key
+			return apiKey.AccountID == apiKey.ID || apiKey.ParentKeyID == nil, nil
+		}
+	}
+	return false, fmt.Errorf("API key not found")
+}

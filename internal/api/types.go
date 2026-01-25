@@ -366,3 +366,115 @@ type ExportUsageInput struct {
 type ExportUsageOutput struct {
 	Body []DayUsage
 }
+
+// --- API Key Management Types ---
+
+// APIKeyResponse represents an API key in responses (without the secret key).
+type APIKeyResponse struct {
+	ID                    string  `json:"id" doc:"API key identifier" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Name                  *string `json:"name,omitempty" doc:"Key name" example:"Production API"`
+	Description           *string `json:"description,omitempty" doc:"Key description" example:"Used for CI/CD pipelines"`
+	KeyPreview            string  `json:"key_preview" doc:"Masked API key preview" example:"sk_...abcd"`
+	IsActive              bool    `json:"is_active" doc:"Whether key is active" example:"true"`
+	ExpiresAt             *string `json:"expires_at,omitempty" doc:"Expiration timestamp (RFC3339)" example:"2025-12-31T23:59:59Z"`
+	CustomDailyLimit      *int    `json:"custom_daily_limit,omitempty" doc:"Custom daily request limit" example:"1000"`
+	CustomConcurrentLimit *int    `json:"custom_concurrent_limit,omitempty" doc:"Custom concurrent request limit" example:"10"`
+	CreatedAt             string  `json:"created_at" doc:"Creation timestamp (RFC3339)" example:"2024-01-15T10:30:00Z"`
+	LastUsedAt            *string `json:"last_used_at,omitempty" doc:"Last used timestamp (RFC3339)" example:"2024-06-01T08:00:00Z"`
+}
+
+// CreateAPIKeyRequest defines the request to create a new API key.
+type CreateAPIKeyRequest struct {
+	Name                  string  `json:"name" doc:"Key name" example:"Production API" minLength:"1" maxLength:"255"`
+	Description           *string `json:"description,omitempty" doc:"Key description" example:"Used for CI/CD pipelines" maxLength:"1000"`
+	ExpiresAt             *string `json:"expires_at,omitempty" doc:"Expiration time (RFC3339)" example:"2025-12-31T23:59:59Z"`
+	CustomDailyLimit      *int    `json:"custom_daily_limit,omitempty" doc:"Custom daily limit (must be <= account limit)" minimum:"1"`
+	CustomConcurrentLimit *int    `json:"custom_concurrent_limit,omitempty" doc:"Custom concurrent limit (must be <= account limit)" minimum:"1"`
+}
+
+// CreateAPIKeyResponse returns the full key (only shown once).
+type CreateAPIKeyResponse struct {
+	APIKeyResponse
+	Key string `json:"key" doc:"Full API key (save this - only shown once)" example:"sk_abc123def456..."`
+}
+
+// UpdateAPIKeyRequest defines the request to update an API key.
+type UpdateAPIKeyRequest struct {
+	Name                  *string `json:"name,omitempty" doc:"Key name" example:"Staging API" maxLength:"255"`
+	Description           *string `json:"description,omitempty" doc:"Key description" example:"Updated description" maxLength:"1000"`
+	ExpiresAt             *string `json:"expires_at,omitempty" doc:"Expiration time (RFC3339)" example:"2026-12-31T23:59:59Z"`
+	CustomDailyLimit      *int    `json:"custom_daily_limit,omitempty" doc:"Custom daily limit" minimum:"1"`
+	CustomConcurrentLimit *int    `json:"custom_concurrent_limit,omitempty" doc:"Custom concurrent limit" minimum:"1"`
+}
+
+// ListAPIKeysResponse defines the response for listing API keys.
+type ListAPIKeysResponse struct {
+	Keys []APIKeyResponse `json:"keys" doc:"List of API keys"`
+}
+
+// RotateAPIKeyResponse returns the new key after rotation.
+type RotateAPIKeyResponse struct {
+	APIKeyResponse
+	Key string `json:"key" doc:"New API key (save this - only shown once)" example:"sk_new123abc456..."`
+}
+
+// --- API Key Management Huma Input/Output Types ---
+
+// ListAPIKeysInput is the input for GET /v1/account/keys.
+type ListAPIKeysInput struct {
+}
+
+// ListAPIKeysOutput is the output for GET /v1/account/keys.
+type ListAPIKeysOutput struct {
+	Body ListAPIKeysResponse
+}
+
+// CreateAPIKeyInput is the input for POST /v1/account/keys.
+type CreateAPIKeyInput struct {
+	Body CreateAPIKeyRequest
+}
+
+// CreateAPIKeyOutput is the output for POST /v1/account/keys.
+type CreateAPIKeyOutput struct {
+	Body CreateAPIKeyResponse
+}
+
+// GetAPIKeyInput is the input for GET /v1/account/keys/{id}.
+type GetAPIKeyInput struct {
+	ID string `path:"id" doc:"API key ID" example:"550e8400-e29b-41d4-a716-446655440000" minLength:"1"`
+}
+
+// GetAPIKeyOutput is the output for GET /v1/account/keys/{id}.
+type GetAPIKeyOutput struct {
+	Body APIKeyResponse
+}
+
+// UpdateAPIKeyInput is the input for PUT /v1/account/keys/{id}.
+type UpdateAPIKeyInput struct {
+	ID   string `path:"id" doc:"API key ID" example:"550e8400-e29b-41d4-a716-446655440000" minLength:"1"`
+	Body UpdateAPIKeyRequest
+}
+
+// UpdateAPIKeyOutput is the output for PUT /v1/account/keys/{id}.
+type UpdateAPIKeyOutput struct {
+	Body APIKeyResponse
+}
+
+// DeleteAPIKeyInput is the input for DELETE /v1/account/keys/{id}.
+type DeleteAPIKeyInput struct {
+	ID string `path:"id" doc:"API key ID" example:"550e8400-e29b-41d4-a716-446655440000" minLength:"1"`
+}
+
+// DeleteAPIKeyOutput is the output for DELETE /v1/account/keys/{id} (204 No Content).
+type DeleteAPIKeyOutput struct {
+}
+
+// RotateAPIKeyInput is the input for POST /v1/account/keys/{id}/rotate.
+type RotateAPIKeyInput struct {
+	ID string `path:"id" doc:"API key ID" example:"550e8400-e29b-41d4-a716-446655440000" minLength:"1"`
+}
+
+// RotateAPIKeyOutput is the output for POST /v1/account/keys/{id}/rotate.
+type RotateAPIKeyOutput struct {
+	Body RotateAPIKeyResponse
+}

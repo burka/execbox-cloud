@@ -20,6 +20,12 @@ export type EnhancedUsageResponse = components['schemas']['EnhancedUsageResponse
 export type AccountLimitsResponse = components['schemas']['AccountLimitsResponse'];
 export type DayUsage = components['schemas']['DayUsage'];
 export type HourlyUsage = components['schemas']['HourlyUsage'];
+export type APIKeyResponse = components['schemas']['APIKeyResponse'];
+export type CreateAPIKeyRequest = components['schemas']['CreateAPIKeyRequest'];
+export type CreateAPIKeyResponse = components['schemas']['CreateAPIKeyResponse'];
+export type UpdateAPIKeyRequest = components['schemas']['UpdateAPIKeyRequest'];
+export type ListAPIKeysResponse = components['schemas']['ListAPIKeysResponse'];
+export type RotateAPIKeyResponse = components['schemas']['RotateAPIKeyResponse'];
 
 /**
  * Create a type-safe API client instance
@@ -208,6 +214,69 @@ export class ApiClient {
       throw new Error(error.detail || 'Failed to export usage data');
     }
 
+    return data!;
+  }
+
+  /**
+   * List all API keys
+   */
+  async listAPIKeys(): Promise<APIKeyResponse[]> {
+    const { data, error } = await this.client.GET('/v1/account/keys');
+    if (error) {
+      throw new Error(error.detail || 'Failed to list API keys');
+    }
+    return data?.keys || [];
+  }
+
+  /**
+   * Create a new API key
+   */
+  async createAPIKey(request: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
+    const { data, error } = await this.client.POST('/v1/account/keys', {
+      body: request,
+    });
+    if (error) {
+      throw new Error(error.detail || 'Failed to create API key');
+    }
+    return data!;
+  }
+
+  /**
+   * Update an API key
+   */
+  async updateAPIKey(id: string, request: UpdateAPIKeyRequest): Promise<APIKeyResponse> {
+    const { data, error } = await this.client.PUT('/v1/account/keys/{id}', {
+      params: { path: { id } },
+      body: request,
+    });
+    if (error) {
+      throw new Error(error.detail || 'Failed to update API key');
+    }
+    return data!;
+  }
+
+  /**
+   * Delete an API key
+   */
+  async deleteAPIKey(id: string): Promise<void> {
+    const { error } = await this.client.DELETE('/v1/account/keys/{id}', {
+      params: { path: { id } },
+    });
+    if (error) {
+      throw new Error(error.detail || 'Failed to delete API key');
+    }
+  }
+
+  /**
+   * Rotate an API key
+   */
+  async rotateAPIKey(id: string): Promise<RotateAPIKeyResponse> {
+    const { data, error } = await this.client.POST('/v1/account/keys/{id}/rotate', {
+      params: { path: { id } },
+    });
+    if (error) {
+      throw new Error(error.detail || 'Failed to rotate API key');
+    }
     return data!;
   }
 }

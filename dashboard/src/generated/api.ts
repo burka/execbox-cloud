@@ -44,6 +44,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/account/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List API keys
+         * @description Returns all API keys for the authenticated account, including their status and settings.
+         */
+        get: operations["listAPIKeys"];
+        put?: never;
+        /**
+         * Create API key
+         * @description Creates a new API key for the account. The full key is only shown once in the response.
+         */
+        post: operations["createAPIKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get API key
+         * @description Returns details for a specific API key.
+         */
+        get: operations["getAPIKey"];
+        /**
+         * Update API key
+         * @description Updates an API key's name, description, limits, or expiration. Only specified fields are modified.
+         */
+        put: operations["updateAPIKey"];
+        post?: never;
+        /**
+         * Delete API key
+         * @description Deactivates an API key. The primary account key cannot be deleted.
+         */
+        delete: operations["deleteAPIKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/account/keys/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate API key
+         * @description Generates a new key value for an API key while preserving its settings. The old key immediately becomes invalid.
+         */
+        post: operations["rotateAPIKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/account/limits": {
         parameters: {
             query?: never;
@@ -240,6 +312,66 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIKeyResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/APIKeyResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Creation timestamp (RFC3339)
+             * @example 2024-01-15T10:30:00Z
+             */
+            created_at: string;
+            /**
+             * Format: int64
+             * @description Custom concurrent request limit
+             * @example 10
+             */
+            custom_concurrent_limit?: number;
+            /**
+             * Format: int64
+             * @description Custom daily request limit
+             * @example 1000
+             */
+            custom_daily_limit?: number;
+            /**
+             * @description Key description
+             * @example Used for CI/CD pipelines
+             */
+            description?: string;
+            /**
+             * @description Expiration timestamp (RFC3339)
+             * @example 2025-12-31T23:59:59Z
+             */
+            expires_at?: string;
+            /**
+             * @description API key identifier
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            id: string;
+            /**
+             * @description Whether key is active
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * @description Masked API key preview
+             * @example sk_...abcd
+             */
+            key_preview: string;
+            /**
+             * @description Last used timestamp (RFC3339)
+             * @example 2024-06-01T08:00:00Z
+             */
+            last_used_at?: string;
+            /**
+             * @description Key name
+             * @example Production API
+             */
+            name?: string;
+        };
         AccountLimitsResponse: {
             /**
              * Format: uri
@@ -319,6 +451,104 @@ export interface components {
              * @example 2025-01-15T10:30:00Z
              */
             tier_expires_at?: string;
+        };
+        CreateAPIKeyRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/CreateAPIKeyRequest.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Custom concurrent limit (must be <= account limit)
+             */
+            custom_concurrent_limit?: number;
+            /**
+             * Format: int64
+             * @description Custom daily limit (must be <= account limit)
+             */
+            custom_daily_limit?: number;
+            /**
+             * @description Key description
+             * @example Used for CI/CD pipelines
+             */
+            description?: string;
+            /**
+             * @description Expiration time (RFC3339)
+             * @example 2025-12-31T23:59:59Z
+             */
+            expires_at?: string;
+            /**
+             * @description Key name
+             * @example Production API
+             */
+            name: string;
+        };
+        CreateAPIKeyResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/CreateAPIKeyResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Creation timestamp (RFC3339)
+             * @example 2024-01-15T10:30:00Z
+             */
+            created_at: string;
+            /**
+             * Format: int64
+             * @description Custom concurrent request limit
+             * @example 10
+             */
+            custom_concurrent_limit?: number;
+            /**
+             * Format: int64
+             * @description Custom daily request limit
+             * @example 1000
+             */
+            custom_daily_limit?: number;
+            /**
+             * @description Key description
+             * @example Used for CI/CD pipelines
+             */
+            description?: string;
+            /**
+             * @description Expiration timestamp (RFC3339)
+             * @example 2025-12-31T23:59:59Z
+             */
+            expires_at?: string;
+            /**
+             * @description API key identifier
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            id: string;
+            /**
+             * @description Whether key is active
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * @description Full API key (save this - only shown once)
+             * @example sk_abc123def456...
+             */
+            key: string;
+            /**
+             * @description Masked API key preview
+             * @example sk_...abcd
+             */
+            key_preview: string;
+            /**
+             * @description Last used timestamp (RFC3339)
+             * @example 2024-06-01T08:00:00Z
+             */
+            last_used_at?: string;
+            /**
+             * @description Key name
+             * @example Production API
+             */
+            name?: string;
         };
         CreateSessionRequest: {
             /**
@@ -618,6 +848,16 @@ export interface components {
              */
             hour: string;
         };
+        ListAPIKeysResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/ListAPIKeysResponse.json
+             */
+            readonly $schema?: string;
+            /** @description List of API keys */
+            keys: components["schemas"]["APIKeyResponse"][] | null;
+        };
         ListSessionsResponse: {
             /**
              * Format: uri
@@ -725,6 +965,71 @@ export interface components {
              */
             timeoutMs?: number;
         };
+        RotateAPIKeyResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/RotateAPIKeyResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Creation timestamp (RFC3339)
+             * @example 2024-01-15T10:30:00Z
+             */
+            created_at: string;
+            /**
+             * Format: int64
+             * @description Custom concurrent request limit
+             * @example 10
+             */
+            custom_concurrent_limit?: number;
+            /**
+             * Format: int64
+             * @description Custom daily request limit
+             * @example 1000
+             */
+            custom_daily_limit?: number;
+            /**
+             * @description Key description
+             * @example Used for CI/CD pipelines
+             */
+            description?: string;
+            /**
+             * @description Expiration timestamp (RFC3339)
+             * @example 2025-12-31T23:59:59Z
+             */
+            expires_at?: string;
+            /**
+             * @description API key identifier
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            id: string;
+            /**
+             * @description Whether key is active
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * @description New API key (save this - only shown once)
+             * @example sk_new123abc456...
+             */
+            key: string;
+            /**
+             * @description Masked API key preview
+             * @example sk_...abcd
+             */
+            key_preview: string;
+            /**
+             * @description Last used timestamp (RFC3339)
+             * @example 2024-06-01T08:00:00Z
+             */
+            last_used_at?: string;
+            /**
+             * @description Key name
+             * @example Production API
+             */
+            name?: string;
+        };
         SessionResponse: {
             /**
              * Format: uri
@@ -750,6 +1055,39 @@ export interface components {
              */
             readonly $schema?: string;
             status: string;
+        };
+        UpdateAPIKeyRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://api.execbox.cloud/schemas/UpdateAPIKeyRequest.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Custom concurrent limit
+             */
+            custom_concurrent_limit?: number;
+            /**
+             * Format: int64
+             * @description Custom daily limit
+             */
+            custom_daily_limit?: number;
+            /**
+             * @description Key description
+             * @example Updated description
+             */
+            description?: string;
+            /**
+             * @description Expiration time (RFC3339)
+             * @example 2026-12-31T23:59:59Z
+             */
+            expires_at?: string;
+            /**
+             * @description Key name
+             * @example Staging API
+             */
+            name?: string;
         };
         UpdateAccountLimitsRequest: {
             /**
@@ -955,6 +1293,210 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    listAPIKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListAPIKeysResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    createAPIKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateAPIKeyResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    getAPIKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description API key ID
+                 * @example 550e8400-e29b-41d4-a716-446655440000
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIKeyResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    updateAPIKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description API key ID
+                 * @example 550e8400-e29b-41d4-a716-446655440000
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAPIKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIKeyResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    deleteAPIKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description API key ID
+                 * @example 550e8400-e29b-41d4-a716-446655440000
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    rotateAPIKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description API key ID
+                 * @example 550e8400-e29b-41d4-a716-446655440000
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateAPIKeyResponse"];
                 };
             };
             /** @description Error */

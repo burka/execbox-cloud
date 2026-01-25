@@ -17,6 +17,28 @@ type APIKey struct {
 	RateLimitRPS  int        `json:"rate_limit_rps"`
 	CreatedAt     time.Time  `json:"created_at"`
 	LastUsedAt    *time.Time `json:"last_used_at,omitempty"`
+	// Multi-key management fields (migration 005)
+	Name                  *string    `json:"name,omitempty"`
+	Description           *string    `json:"description,omitempty"`
+	IsActive              bool       `json:"is_active"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	ParentKeyID           *uuid.UUID `json:"parent_key_id,omitempty"`
+	AccountID             uuid.UUID  `json:"account_id"`
+	CustomDailyLimit      *int       `json:"custom_daily_limit,omitempty"`
+	CustomConcurrentLimit *int       `json:"custom_concurrent_limit,omitempty"`
+	LastUpdatedBy         *string    `json:"last_updated_by,omitempty"`
+	Metadata              *string    `json:"metadata,omitempty"`
+}
+
+// APIKeyUpdate contains fields that can be updated on an API key.
+type APIKeyUpdate struct {
+	Name                  *string    `json:"name,omitempty"`
+	Description           *string    `json:"description,omitempty"`
+	IsActive              *bool      `json:"is_active,omitempty"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	CustomDailyLimit      *int       `json:"custom_daily_limit,omitempty"`
+	CustomConcurrentLimit *int       `json:"custom_concurrent_limit,omitempty"`
+	LastUpdatedBy         *string    `json:"last_updated_by,omitempty"`
 }
 
 // Session represents an execution session with backend mapping and lifecycle tracking.

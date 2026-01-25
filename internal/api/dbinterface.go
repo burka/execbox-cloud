@@ -29,6 +29,14 @@ type DBClient interface {
 	GetHourlyAccountUsage(ctx context.Context, accountID uuid.UUID, start, end time.Time) ([]db.HourlyAccountUsage, error)
 	GetDailyAccountUsage(ctx context.Context, accountID uuid.UUID, days int) ([]db.UsageMetric, error)
 	GetAccountCostTracking(ctx context.Context, accountID uuid.UUID, periodStart time.Time) ([]db.AccountCostTracking, error)
+
+	// Multi-key management
+	GetAPIKeysByAccount(ctx context.Context, accountID uuid.UUID) ([]db.APIKey, error)
+	CreateAPIKeyForAccount(ctx context.Context, accountID uuid.UUID, name, description string, parentKeyID uuid.UUID) (*db.APIKey, error)
+	UpdateAPIKey(ctx context.Context, keyID uuid.UUID, update *db.APIKeyUpdate) error
+	DeactivateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) error
+	RotateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) (*db.APIKey, error)
+	IsPrimaryKey(ctx context.Context, keyID uuid.UUID) (bool, error)
 }
 
 // Ensure *db.Client implements DBClient interface

@@ -196,6 +196,108 @@ func (m *mockHandlerDB) GetAccountCostTracking(ctx context.Context, accountID uu
 	return nil, nil
 }
 
+// Multi-key management methods
+
+func (m *mockHandlerDB) GetAPIKeysByAccount(ctx context.Context, accountID uuid.UUID) ([]db.APIKey, error) {
+	var keys []db.APIKey
+	for _, apiKey := range m.apiKeysByString {
+		if apiKey.AccountID == accountID {
+			keys = append(keys, *apiKey)
+		}
+	}
+	return keys, nil
+}
+
+func (m *mockHandlerDB) CreateAPIKeyForAccount(ctx context.Context, accountID uuid.UUID, name, description string, parentKeyID uuid.UUID) (*db.APIKey, error) {
+	key := fmt.Sprintf("sk_test_%s", randHex(32))
+	apiKey := &db.APIKey{
+		ID:           uuid.New(),
+		Key:          key,
+		Tier:         "free",
+		RateLimitRPS: 10,
+		CreatedAt:    time.Now().UTC(),
+		IsActive:     true,
+		AccountID:    accountID,
+		ParentKeyID:  &parentKeyID,
+		Name:         &name,
+		Description:  &description,
+	}
+	m.apiKeysByString[key] = apiKey
+	return apiKey, nil
+}
+
+func (m *mockHandlerDB) UpdateAPIKey(ctx context.Context, keyID uuid.UUID, update *db.APIKeyUpdate) error {
+	for _, apiKey := range m.apiKeysByString {
+		if apiKey.ID == keyID {
+			if update.Name != nil {
+				apiKey.Name = update.Name
+			}
+			if update.Description != nil {
+				apiKey.Description = update.Description
+			}
+			if update.IsActive != nil {
+				apiKey.IsActive = *update.IsActive
+			}
+			if update.ExpiresAt != nil {
+				apiKey.ExpiresAt = update.ExpiresAt
+			}
+			if update.CustomDailyLimit != nil {
+				apiKey.CustomDailyLimit = update.CustomDailyLimit
+			}
+			if update.CustomConcurrentLimit != nil {
+				apiKey.CustomConcurrentLimit = update.CustomConcurrentLimit
+			}
+			if update.LastUpdatedBy != nil {
+				apiKey.LastUpdatedBy = update.LastUpdatedBy
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+func (m *mockHandlerDB) DeactivateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) error {
+	for _, apiKey := range m.apiKeysByString {
+		if apiKey.ID == keyID {
+			apiKey.IsActive = false
+			apiKey.LastUpdatedBy = &performedBy
+			return nil
+		}
+	}
+	return fmt.Errorf("API key not found")
+}
+
+func (m *mockHandlerDB) RotateAPIKey(ctx context.Context, keyID uuid.UUID, performedBy string) (*db.APIKey, error) {
+	for oldKey, apiKey := range m.apiKeysByString {
+		if apiKey.ID == keyID {
+			// Remove old key mapping
+			delete(m.apiKeysByString, oldKey)
+
+			// Generate new key
+			newKey := fmt.Sprintf("sk_test_%s", randHex(32))
+			apiKey.Key = newKey
+			apiKey.LastUpdatedBy = &performedBy
+
+			// Store with new key
+			m.apiKeysByString[newKey] = apiKey
+
+			keyCopy := *apiKey
+			return &keyCopy, nil
+		}
+	}
+	return nil, fmt.Errorf("API key not found")
+}
+
+func (m *mockHandlerDB) IsPrimaryKey(ctx context.Context, keyID uuid.UUID) (bool, error) {
+	for _, apiKey := range m.apiKeysByString {
+		if apiKey.ID == keyID {
+			// Primary keys have account_id == their own ID, or no parent key
+			return apiKey.AccountID == apiKey.ID || apiKey.ParentKeyID == nil, nil
+		}
+	}
+	return false, fmt.Errorf("API key not found")
+}
+
 func TestGenerateSessionID(t *testing.T) {
 	// Test that session IDs have correct format
 	for i := 0; i < 10; i++ {

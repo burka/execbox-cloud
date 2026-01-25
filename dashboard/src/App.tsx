@@ -7,6 +7,7 @@ import { Toaster } from './components/ui/toaster';
 const Landing = lazy(() => import('./pages/Landing').then(m => ({ default: m.Landing })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const RequestQuota = lazy(() => import('./pages/RequestQuota').then(m => ({ default: m.RequestQuota })));
+const KeysPage = lazy(() => import('./pages/KeysPage').then(m => ({ default: m.KeysPage })));
 
 function App() {
   return (
@@ -24,6 +25,14 @@ function App() {
               }
             />
             <Route path="/request-quota" element={<RequestQuota />} />
+            <Route
+              path="/keys"
+              element={
+                <ProtectedRoute>
+                  <KeysPage />
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </Suspense>
       </Layout>
